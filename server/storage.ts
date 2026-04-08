@@ -35,11 +35,13 @@ export interface IStorage {
   getAllEvents(): Promise<Event[]>;
   deleteEvent(id: number): Promise<void>;
   settleEvent(id: number): Promise<Event | undefined>;
+  updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined>;
 
   // Members
   createMember(member: InsertMember): Promise<Member>;
   getMembersByEvent(eventId: number): Promise<Member[]>;
   getMember(id: number): Promise<Member | undefined>;
+  deleteMember(id: number): Promise<void>;
 
   // Payments
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -97,6 +99,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(events).where(eq(events.id, id)).get();
   }
 
+  async updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined> {
+    db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
+    return db.select().from(events).where(eq(events.id, id)).get();
+  }
+
   // Members
   async createMember(member: InsertMember): Promise<Member> {
     return db.insert(members).values(member).returning().get();
@@ -108,6 +115,10 @@ export class DatabaseStorage implements IStorage {
 
   async getMember(id: number): Promise<Member | undefined> {
     return db.select().from(members).where(eq(members.id, id)).get();
+  }
+
+  async deleteMember(id: number): Promise<void> {
+    db.delete(members).where(eq(members.id, id)).run();
   }
 
   // Payments

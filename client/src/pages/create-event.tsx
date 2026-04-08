@@ -132,7 +132,7 @@ export default function CreateEvent() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">イベント情報</CardTitle>
-                <CardDescription className="text-sm">旅行や食事のイベントを設定します</CardDescription>
+                <CardDescription className="text-sm">イベントを設定します</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -140,7 +140,7 @@ export default function CreateEvent() {
                   <Input
                     id="event-name"
                     data-testid="input-event-name"
-                    placeholder="例：大阪旅行2024"
+                    placeholder="例：京都旅行2026"
                     value={eventName}
                     onChange={(e) => setEventName(e.target.value)}
                     disabled={createMutation.isPending}
@@ -154,7 +154,7 @@ export default function CreateEvent() {
                   <Input
                     id="keyword"
                     data-testid="input-keyword"
-                    placeholder="例：osaka2024"
+                    placeholder="例：kyoto2026"
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     disabled={createMutation.isPending}
