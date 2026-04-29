@@ -1,0 +1,26 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy this file from the Render dashboard via "New +" → "Blueprint".
+# Render will create a Web Service running the Docker image built from
+# deploy/Dockerfile and a 1 GB persistent disk mounted at /data for SQLite.
+
+services:
+  - type: web
+    name: warikan-master
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/data.db
+      - key: PORT
+        value: 10000
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
