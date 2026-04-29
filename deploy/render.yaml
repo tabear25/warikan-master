@@ -1,7 +1,14 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 # Deploy this file from the Render dashboard via "New +" → "Blueprint".
-# Render will create a Web Service running the Docker image built from
-# deploy/Dockerfile and a 1 GB persistent disk mounted at /data for SQLite.
+#
+# This is the FREE-PLAN configuration: no persistent disk (Render's free tier
+# does not support disks). SQLite lives on the container's local filesystem,
+# which means data is RESET on every redeploy / restart / wake-from-sleep.
+#
+# To keep data across restarts:
+#   1. Change `plan: free` to `plan: starter` (paid, ~$7/mo).
+#   2. Add the disk block (see deploy/README.md "永続化したい場合" section).
+#   3. Set DB_PATH to /data/data.db.
 
 services:
   - type: web
@@ -17,10 +24,6 @@ services:
       - key: NODE_ENV
         value: production
       - key: DB_PATH
-        value: /data/data.db
+        value: /app/data/data.db
       - key: PORT
         value: 10000
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1

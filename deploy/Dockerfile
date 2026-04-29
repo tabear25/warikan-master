@@ -18,15 +18,17 @@ RUN npm ci
 COPY . .
 RUN npm run build
 # devDeps (drizzle-kit, tsx) are kept on purpose — needed by `npm run db:push`
-# at container startup so the schema is applied on a fresh persistent volume.
+# at container startup so the schema is applied on a fresh database.
 
 # ---------- runtime ----------
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=10000
-# Persistent volume mount point — see render.yaml / your platform's disk config.
-ENV DB_PATH=/data/data.db
+# Default DB path lives under /app/data so the free-plan deploy works without
+# a persistent disk. To persist across restarts, mount a disk and override
+# DB_PATH (e.g. /data/data.db) — see deploy/render.yaml comments.
+ENV DB_PATH=/app/data/data.db
 
 # Tini for proper signal handling (graceful SIGTERM on redeploys).
 RUN apt-get update \
@@ -38,11 +40,10 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 
-RUN mkdir -p /data
-VOLUME ["/data"]
+# Both default (free-plan, ephemeral) and disk-mount paths.
+RUN mkdir -p /app/data /data
 
 EXPOSE 10000
 ENTRYPOINT ["/usr/bin/tini", "--"]
