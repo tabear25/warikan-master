@@ -10,6 +10,7 @@ import Home from "@/pages/home";
 import CreateEvent from "@/pages/create-event";
 import EventPage from "@/pages/event";
 import AdminPage from "@/pages/admin";
+import Help from "@/pages/help";
 
 function AppRouter() {
   return (
@@ -18,6 +19,7 @@ function AppRouter() {
       <Route path="/create" component={CreateEvent} />
       <Route path="/event/:id" component={EventPage} />
       <Route path="/admin" component={AdminPage} />
+      <Route path="/help" component={Help} />
       <Route component={NotFound} />
     </Switch>
   );

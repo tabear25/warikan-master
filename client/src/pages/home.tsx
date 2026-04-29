@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
-import { Moon, Sun, Users, PlusCircle, KeyRound } from "lucide-react";
+import { Moon, Sun, Users, PlusCircle, KeyRound, HelpCircle } from "lucide-react";
 import type { Event, Member } from "@shared/schema";
 
 // SVG Logo: stylized ¥ with a split/divide motif
@@ -75,15 +75,27 @@ export default function Home() {
             <WaricanLogo className="w-8 h-8 text-primary" />
             <span className="font-bold text-base text-foreground">Warikan Master</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            data-testid="button-toggle-theme"
-            aria-label="テーマ切り替え"
-          >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Link href="/help">
+              <Button
+                variant="ghost"
+                size="icon"
+                data-testid="button-help"
+                aria-label="ヘルプ"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              data-testid="button-toggle-theme"
+              aria-label="テーマ切り替え"
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </header>
 
