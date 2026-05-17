@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npm install *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\str06\\\\private_workplace\\\\warikan_master\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }
