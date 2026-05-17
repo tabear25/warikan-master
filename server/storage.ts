@@ -1,13 +1,10 @@
 import {
-  type Admin,
-  type InsertAdmin,
   type Event,
   type InsertEvent,
   type Member,
   type InsertMember,
   type Payment,
   type InsertPayment,
-  admins,
   events,
   members,
   payments,
@@ -22,12 +19,6 @@ sqlite.pragma("journal_mode = WAL");
 export const db = drizzle(sqlite);
 
 export interface IStorage {
-  // Admin
-  getAdmin(id: number): Promise<Admin | undefined>;
-  getAdminByUsername(username: string): Promise<Admin | undefined>;
-  createAdmin(admin: InsertAdmin): Promise<Admin>;
-  ensureDefaultAdmin(): Promise<void>;
-
   // Events
   createEvent(event: InsertEvent): Promise<Event>;
   getEvent(id: number): Promise<Event | undefined>;
@@ -50,26 +41,6 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // Admin
-  async getAdmin(id: number): Promise<Admin | undefined> {
-    return db.select().from(admins).where(eq(admins.id, id)).get();
-  }
-
-  async getAdminByUsername(username: string): Promise<Admin | undefined> {
-    return db.select().from(admins).where(eq(admins.username, username)).get();
-  }
-
-  async createAdmin(admin: InsertAdmin): Promise<Admin> {
-    return db.insert(admins).values(admin).returning().get();
-  }
-
-  async ensureDefaultAdmin(): Promise<void> {
-    const existing = db.select().from(admins).get();
-    if (!existing) {
-      db.insert(admins).values({ username: "admin", password: "admin" }).run();
-    }
-  }
-
   // Events
   async createEvent(event: InsertEvent): Promise<Event> {
     return db.insert(events).values(event).returning().get();

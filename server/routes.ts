@@ -1,7 +1,9 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { storage } from "./storage";
+import { verifyAdminCredentials } from "./auth";
 
 interface Transfer {
   from: string;
@@ -80,6 +82,16 @@ const adminLoginSchema = z.object({
   password: z.string().min(1),
 });
 
+// 管理者ログインのブルートフォース対策。失敗のみカウントし、1分あたり5回まで。
+const adminLoginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。",
+});
+
 const createEventSchema = z.object({
   name: z.string().min(1, "Event name is required"),
   keyword: z.string().min(1, "Keyword is required"),
@@ -102,8 +114,6 @@ const addAdminMemberSchema = z.object({
 });
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  await storage.ensureDefaultAdmin();
-
   const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
     const adminUsername = req.headers["x-admin-username"];
     const adminPassword = req.headers["x-admin-password"];
@@ -112,27 +122,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(401).json({ error: "Admin credentials are required" });
     }
 
-    const admin = await storage.getAdminByUsername(String(adminUsername));
-    if (!admin || admin.password !== String(adminPassword)) {
+    const valid = await verifyAdminCredentials(String(adminUsername), String(adminPassword));
+    if (!valid) {
       return res.status(401).json({ error: "Invalid admin credentials" });
     }
 
     next();
   };
 
-  app.post("/api/admin/login", async (req, res) => {
+  app.post("/api/admin/login", adminLoginLimiter, async (req, res) => {
     const parsed = adminLoginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ success: false, error: "Invalid request body" });
     }
 
     const { username, password } = parsed.data;
-    const admin = await storage.getAdminByUsername(username);
-    if (!admin || admin.password !== password) {
+    const valid = await verifyAdminCredentials(username, password);
+    if (!valid) {
       return res.status(401).json({ success: false, error: "Invalid username or password" });
     }
 
-    return res.json({ success: true, admin: { id: admin.id, username: admin.username } });
+    return res.json({ success: true, admin: { username } });
   });
 
   app.get("/api/admin/events", requireAdmin, async (_req, res) => {

@@ -2,13 +2,6 @@ import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Admin user for the admin panel
-export const admins = sqliteTable("admins", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-});
-
 // Events (trips, gatherings, etc.)
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -37,13 +30,10 @@ export const payments = sqliteTable("payments", {
 });
 
 // Export schemas and types
-export const insertAdminSchema = createInsertSchema(admins).omit({ id: true });
 export const insertEventSchema = createInsertSchema(events).omit({ id: true });
 export const insertMemberSchema = createInsertSchema(members).omit({ id: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
 
-export type Admin = typeof admins.$inferSelect;
-export type InsertAdmin = z.infer<typeof insertAdminSchema>;
 export type Event = typeof events.$inferSelect;
 export type InsertEvent = z.infer<typeof insertEventSchema>;
 export type Member = typeof members.$inferSelect;

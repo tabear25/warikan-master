@@ -27,3 +27,9 @@ services:
         value: /app/data/data.db
       - key: PORT
         value: 10000
+      # 管理者認証情報。sync: false により値はリポジトリに含めず、
+      # Render dashboard で個別に入力する（ADMIN_PASSWORD_HASH は bcrypt ハッシュ）。
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD_HASH
+        sync: false

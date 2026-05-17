@@ -1,10 +1,15 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { loadAdminConfig } from "./auth";
 import { createServer } from "http";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Render などのリバースプロキシ配下で req.ip を正しく取得する（レート制限のため）。
+app.set("trust proxy", 1);
 
 declare module "http" {
   interface IncomingMessage {
@@ -60,6 +65,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // 管理者認証情報を起動時に検証する。不正・未設定ならプロセスを終了する（fail-fast）。
+  try {
+    loadAdminConfig();
+  } catch (err) {
+    console.error(
+      `[起動中止] ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
