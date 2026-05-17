@@ -25,6 +25,7 @@ import {
   Wallet
 } from "lucide-react";
 import type { Event, Member, Payment } from "@shared/schema";
+import { formatYen, formatSignedYen } from "@/lib/currency";
 
 function WaricanLogo({ className = "" }: { className?: string }) {
   return (
@@ -38,10 +39,6 @@ function WaricanLogo({ className = "" }: { className?: string }) {
       <circle cx="32" cy="12" r="2" fill="currentColor" opacity="0.5" />
     </svg>
   );
-}
-
-function formatAmount(amount: number): string {
-  return `¥${Math.round(amount).toLocaleString("ja-JP")}`;
 }
 
 interface AddPaymentDialogProps {
@@ -411,7 +408,7 @@ export default function EventPage() {
                       <CardContent className="pt-3 pb-3 flex items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="font-semibold text-sm text-foreground">{formatAmount(p.amount)}</span>
+                            <span className="font-semibold text-sm text-foreground">{formatYen(p.amount)}</span>
                             <span className="text-xs text-muted-foreground">← {getMemberName(p.payerId)}</span>
                           </div>
                           <p className="text-sm text-foreground mb-1">{p.description}</p>
@@ -478,7 +475,7 @@ export default function EventPage() {
                           <div key={m.id} className="flex items-center justify-between text-sm" data-testid={`balance-${m.id}`}>
                             <span className="text-foreground">{m.name}</span>
                             <span className={rounded >= 0 ? "text-primary font-medium" : "text-destructive font-medium"}>
-                              {rounded >= 0 ? `+${formatAmount(rounded)}` : formatAmount(rounded)}
+                              {formatSignedYen(rounded)}
                             </span>
                           </div>
                         );
@@ -508,7 +505,7 @@ export default function EventPage() {
                           <span className="text-sm font-medium text-foreground">{t.from}</span>
                           <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
                           <span className="text-sm font-medium text-foreground">{t.to}</span>
-                          <span className="ml-auto text-sm font-bold text-primary">{formatAmount(t.amount)}</span>
+                          <span className="ml-auto text-sm font-bold text-primary">{formatYen(t.amount)}</span>
                         </div>
                       ))}
                     </CardContent>
