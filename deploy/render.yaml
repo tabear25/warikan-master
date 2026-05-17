@@ -28,8 +28,8 @@ services:
       - key: PORT
         value: 10000
       # 管理者認証情報。sync: false により値はリポジトリに含めず、
-      # Render dashboard で個別に入力する（ADMIN_PASSWORD_HASH は bcrypt ハッシュ）。
+      # Render dashboard で個別に入力する（ADMIN_PASSWORD は平文・8文字以上）。
       - key: ADMIN_USERNAME
         sync: false
-      - key: ADMIN_PASSWORD_HASH
+      - key: ADMIN_PASSWORD
         sync: false

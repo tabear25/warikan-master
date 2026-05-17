@@ -45,7 +45,11 @@
 2. 「Connect a repository」で `warikan-master` リポジトリを選択。
    - 初回は GitHub の連携許可ダイアログが出るので、`tabear25/warikan-master` へのアクセスを許可してください。
 3. Blueprint ファイルのパスを聞かれたら **`deploy/render.yaml`** を指定（自動検出されることもあります）。
-4. 「Apply」をクリック。
+4. 管理者ログイン用の環境変数の入力を求められます（`render.yaml` で `sync: false` のため）。
+   - `ADMIN_USERNAME`：管理者のユーザー名。`admin` や `root` などの推測されやすい値は使えません。
+   - `ADMIN_PASSWORD`：管理者のパスワード。**8文字以上**で推測されにくい値にしてください。
+   - 入力欄が出ない場合は、サービス作成後に **「Environment」** タブから同じ2つを追加します。
+5. 「Apply」をクリック。
 
 Render が `deploy/Dockerfile` を使ってビルドを開始します。
 **初回ビルドは 5〜10 分**ほどかかります（`better-sqlite3` のネイティブビルドのため）。
@@ -75,6 +79,7 @@ Render が `deploy/Dockerfile` を使ってビルドを開始します。
   - `NODE_ENV=production`：本番モードで起動。
   - `DB_PATH=/app/data/data.db`：SQLite の保存先。
   - `PORT=10000`：Render が外部公開するポート。
+  - `ADMIN_USERNAME` / `ADMIN_PASSWORD`：管理者ログイン情報（Render dashboard で入力）。未設定だと起動に失敗します。
 - **起動コマンド**: `npm run db:push -- --force && node dist/index.cjs`
   - 起動時に DB スキーマを自動適用（空 DB ならテーブル作成、既にあれば何もしない）。
   - その後 Express サーバーを起動。
@@ -129,8 +134,15 @@ Render が `deploy/Dockerfile` を使ってビルドを開始します。
 Render ダッシュボードの **Settings → Custom Domains** から追加できます。SSL は自動発行されます。
 
 ### Q. 管理者ログインのパスワードを変更したい
-現状、初期管理者は `admin / admin` です（`server/storage.ts` の `ensureDefaultAdmin`）。
-本番で運用する場合は、サーバーコードでパスワードを変更してから再デプロイしてください。
+管理者の資格情報は環境変数から読み込まれます（コードにデフォルト値はありません）。
+Render ダッシュボードの **「Environment」** タブで `ADMIN_USERNAME` と `ADMIN_PASSWORD`
+（8文字以上・推測されにくい値）を編集し、再デプロイすると反映されます。
+平文を環境変数に置きたくない場合は、代わりに `ADMIN_PASSWORD_HASH`（bcrypt ハッシュ）を設定できます。
+
+### Q. デプロイのログに `[起動中止]` と出て起動しない
+管理者の環境変数（`ADMIN_USERNAME` / `ADMIN_PASSWORD`）が未設定か、値が不正です。
+ログに表示される日本語メッセージに従って、Render の **「Environment」** タブで設定し直してください。
+`ADMIN_PASSWORD` は8文字以上で、`password` などの弱いパスワードは拒否されます。
 
 ### Q. ローカルでも Docker で動かしたい
 リポジトリのルートで以下を実行：

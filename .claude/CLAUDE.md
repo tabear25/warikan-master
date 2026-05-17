@@ -30,7 +30,7 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite 
 
 **Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`.
 
-**Admin authentication**: Credentials are read from `ADMIN_USERNAME` / `ADMIN_PASSWORD` env vars (defaults: `admin` / `admin`) and hashed with bcryptjs on first run. Auth is header-based (`x-admin-username`, `x-admin-password`) — no session cookies.
+**Admin authentication**: Credentials are read from env vars — `ADMIN_USERNAME` plus either `ADMIN_PASSWORD` (plaintext, hashed in-memory at startup with bcryptjs) or `ADMIN_PASSWORD_HASH` (a pre-computed bcrypt hash; `ADMIN_PASSWORD` wins if both are set). There are no defaults — `loadAdminConfig()` in [server/auth.ts](server/auth.ts) makes the server fail fast on startup if they are unset, and weak usernames/passwords are rejected. Auth is header-based (`x-admin-username`, `x-admin-password`) — no session cookies.
 
 ## Environment Variables
 
@@ -38,5 +38,6 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite 
 |----------|---------|---------|
 | `PORT` | `5000` | Server listen port |
 | `NODE_ENV` | — | `development` enables Vite HMR; `production` serves static files |
-| `ADMIN_USERNAME` | `admin` | Admin login username |
-| `ADMIN_PASSWORD` | `admin` | Admin login password |
+| `ADMIN_USERNAME` | — (required) | Admin login username |
+| `ADMIN_PASSWORD` | — | Admin login password (plaintext; hashed at startup). Set this or `ADMIN_PASSWORD_HASH` |
+| `ADMIN_PASSWORD_HASH` | — | Pre-computed bcrypt hash of the admin password (alternative to `ADMIN_PASSWORD`) |
