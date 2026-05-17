@@ -2,7 +2,17 @@ import { useState } from "react";
 import { useParams, useLocation, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -207,6 +217,7 @@ export default function EventPage() {
   const { theme, toggleTheme } = useTheme();
   const queryClientHook = useQueryClient();
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null);
 
   const eventQuery = useQuery<Event>({
     queryKey: ["/api/events", eventId],
@@ -423,7 +434,7 @@ export default function EventPage() {
                             variant="ghost"
                             size="icon"
                             className="text-muted-foreground hover:text-destructive flex-shrink-0 h-7 w-7"
-                            onClick={() => deletePaymentMutation.mutate(p.id)}
+                            onClick={() => setPaymentToDelete(p)}
                             disabled={deletePaymentMutation.isPending}
                             data-testid={`button-delete-payment-${p.id}`}
                             aria-label="支払いを削除"
@@ -437,6 +448,40 @@ export default function EventPage() {
                 })}
               </div>
             )}
+
+            <AlertDialog
+              open={paymentToDelete !== null}
+              onOpenChange={(open) => {
+                if (!open) setPaymentToDelete(null);
+              }}
+            >
+              {paymentToDelete && (
+                <AlertDialogContent data-testid="dialog-delete-payment">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>この支払いを削除しますか？</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {formatYen(paymentToDelete.amount)}（{getMemberName(paymentToDelete.payerId)}）
+                      {paymentToDelete.description} を削除します。この操作は取り消せません。
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="button-cancel-delete-payment">
+                      キャンセル
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      className={buttonVariants({ variant: "destructive" })}
+                      onClick={() => {
+                        deletePaymentMutation.mutate(paymentToDelete.id);
+                        setPaymentToDelete(null);
+                      }}
+                      data-testid="button-confirm-delete-payment"
+                    >
+                      削除する
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              )}
+            </AlertDialog>
           </TabsContent>
 
           {/* Settlement Tab */}
