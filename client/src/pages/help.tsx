@@ -26,19 +26,10 @@ function WaricanLogo({ className = "" }: { className?: string }) {
 
 const faqs: { question: string; answer: React.ReactNode }[] = [
   {
-    question: "「イベントが見つかりません」と表示されます",
-    answer: (
-      <>
-        合言葉のスペル、大文字／小文字、全角／半角の違いをご確認ください。
-        正しく入力しても表示される場合は、イベント作成者に合言葉を再確認してください。
-      </>
-    ),
-  },
-  {
     question: "合言葉とは何ですか？",
     answer: (
       <>
-        グループに参加するための共有キーワードです。イベント作成時に決めて、
+        グループに参加するための共有キーワードです。イベントの作成者は、イベント作成時に決めて、
         参加するメンバーに伝えてください（例：<code className="px-1 py-0.5 rounded bg-muted text-xs">osaka2024</code>）。
       </>
     ),
@@ -56,8 +47,8 @@ const faqs: { question: string; answer: React.ReactNode }[] = [
     question: "メンバーを後から追加できますか？",
     answer: (
       <>
-        イベント作成時にはメンバーを2人以上入力する必要があります。
-        作成後の追加可否はイベント画面でご確認ください。
+        イベントの作成後にメンバーの追加は対応していません。
+        イベント作成後のメンバーの追加・削除は、管理者に問い合わせてください。
       </>
     ),
   },
@@ -66,7 +57,7 @@ const faqs: { question: string; answer: React.ReactNode }[] = [
     answer: (
       <>
         イベント画面の支払い一覧から、該当する支払いを編集または削除できます。
-        操作できない場合はイベント作成者にご相談ください。
+        操作できない場合は管理者にご相談ください。
       </>
     ),
   },

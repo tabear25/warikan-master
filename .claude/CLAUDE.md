@@ -32,6 +32,15 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite 
 
 **Admin authentication**: Credentials are read from env vars — `ADMIN_USERNAME` plus either `ADMIN_PASSWORD` (plaintext, hashed in-memory at startup with bcryptjs) or `ADMIN_PASSWORD_HASH` (a pre-computed bcrypt hash; `ADMIN_PASSWORD` wins if both are set). There are no defaults — `loadAdminConfig()` in [server/auth.ts](server/auth.ts) makes the server fail fast on startup if they are unset, and weak usernames/passwords are rejected. Auth is header-based (`x-admin-username`, `x-admin-password`) — no session cookies.
 
+## Deployment
+
+**This project is deployed on Render** (Docker runtime via [deploy/render.yaml](deploy/render.yaml)). Assume Render as the deployment target — do NOT implement features or infrastructure on the assumption of any other platform (Vercel, Netlify, Heroku, raw VPS, etc.) unless explicitly told otherwise.
+
+Render-specific constraints to keep in mind:
+- **Docker-based**: the image is built from [deploy/Dockerfile](deploy/Dockerfile) with `dockerContext: .`. Build/runtime changes must work inside that Dockerfile, not just locally.
+- **Secrets**: `ADMIN_USERNAME` / `ADMIN_PASSWORD` use `sync: false` — they are entered in the Render dashboard, never committed.
+- **autoDeploy** is enabled: pushes to the tracked branch trigger a redeploy.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
