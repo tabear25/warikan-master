@@ -37,6 +37,8 @@ export interface IStorage {
   // Payments
   createPayment(payment: InsertPayment): Promise<Payment>;
   getPaymentsByEvent(eventId: number): Promise<Payment[]>;
+  getPayment(id: number): Promise<Payment | undefined>;
+  updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<void>;
 }
 
@@ -59,10 +61,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEvent(id: number): Promise<void> {
-    // Delete associated payments and members first
-    db.delete(payments).where(eq(payments.eventId, id)).run();
-    db.delete(members).where(eq(members.eventId, id)).run();
-    db.delete(events).where(eq(events.id, id)).run();
+    // Cascade delete payments and members before the event, atomically so a
+    // crash mid-delete cannot leave orphaned rows.
+    db.transaction((tx) => {
+      tx.delete(payments).where(eq(payments.eventId, id)).run();
+      tx.delete(members).where(eq(members.eventId, id)).run();
+      tx.delete(events).where(eq(events.id, id)).run();
+    });
   }
 
   async settleEvent(id: number): Promise<Event | undefined> {
@@ -99,6 +104,15 @@ export class DatabaseStorage implements IStorage {
 
   async getPaymentsByEvent(eventId: number): Promise<Payment[]> {
     return db.select().from(payments).where(eq(payments.eventId, eventId)).all();
+  }
+
+  async getPayment(id: number): Promise<Payment | undefined> {
+    return db.select().from(payments).where(eq(payments.id, id)).get();
+  }
+
+  async updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined> {
+    db.update(payments).set(fields).where(eq(payments.id, id)).run();
+    return db.select().from(payments).where(eq(payments.id, id)).get();
   }
 
   async deletePayment(id: number): Promise<void> {

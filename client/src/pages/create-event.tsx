@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
 import { Moon, Sun, ArrowLeft, Plus, Trash2, ChevronRight } from "lucide-react";
 import type { Event, Member } from "@shared/schema";
+import { LIMITS } from "@shared/schema";
 
 function WaricanLogo({ className = "" }: { className?: string }) {
   return (
@@ -84,6 +85,14 @@ export default function CreateEvent() {
       });
       return;
     }
+    if (new Set(validNames).size !== validNames.length) {
+      toast({
+        title: "メンバー名が重複しています",
+        description: "同じ名前のメンバーは登録できません",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!eventName.trim() || !keyword.trim()) {
       toast({
         title: "入力が不完全です",
@@ -144,6 +153,7 @@ export default function CreateEvent() {
                     value={eventName}
                     onChange={(e) => setEventName(e.target.value)}
                     disabled={createMutation.isPending}
+                    maxLength={LIMITS.eventName}
                     required
                   />
                 </div>
@@ -158,6 +168,7 @@ export default function CreateEvent() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     disabled={createMutation.isPending}
+                    maxLength={LIMITS.keyword}
                     required
                     autoComplete="off"
                   />
@@ -186,6 +197,7 @@ export default function CreateEvent() {
                       value={name}
                       onChange={(e) => updateMember(index, e.target.value)}
                       disabled={createMutation.isPending}
+                      maxLength={LIMITS.memberName}
                       className="flex-1"
                     />
                     <Button

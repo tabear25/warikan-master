@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import QRCode from "qrcode";
+import { toPng } from "html-to-image";
 import { apiRequest } from "@/lib/queryClient";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -20,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -32,10 +35,20 @@ import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
 import {
   Moon, Sun, ArrowLeft, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
-  Wallet
+  Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
+  Scale, Coins, SplitSquareHorizontal,
 } from "lucide-react";
-import type { Event, Member, Payment } from "@shared/schema";
+import type { Event, Member, Payment, SplitMode } from "@shared/schema";
+import { splitYen } from "@shared/split";
 import { formatYen, formatSignedYen } from "@/lib/currency";
+import {
+  buildSettlementCsv,
+  buildSettlementText,
+  copyToClipboard,
+  downloadTextFile,
+  triggerDownload,
+  safeFileName,
+} from "@/lib/export";
 
 function WaricanLogo({ className = "" }: { className?: string }) {
   return (
@@ -51,41 +64,75 @@ function WaricanLogo({ className = "" }: { className?: string }) {
   );
 }
 
-interface AddPaymentDialogProps {
+const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
+  equal: "均等",
+  ratio: "比率",
+  amount: "金額指定",
+};
+
+// ---------------------------------------------------------------------------
+// 支払いの追加 / 編集ダイアログ（割り勘モード対応）
+// ---------------------------------------------------------------------------
+interface PaymentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   eventId: number;
   members: Member[];
+  payment?: Payment | null; // 指定時は編集モード
 }
 
-function AddPaymentDialog({ open, onOpenChange, eventId, members }: AddPaymentDialogProps) {
+function PaymentDialog({ open, onOpenChange, eventId, members, payment }: PaymentDialogProps) {
   const { toast } = useToast();
   const queryClientHook = useQueryClient();
+  const isEdit = !!payment;
+
   const [payerId, setPayerId] = useState<string>("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [splitAll, setSplitAll] = useState(true);
-  const [selectedIds, setSelectedIds] = useState<number[]>(members.map((m) => m.id));
+  const [splitMode, setSplitMode] = useState<SplitMode>("equal");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [weights, setWeights] = useState<Record<number, string>>({});
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
 
-  const resetForm = () => {
-    setPayerId("");
-    setAmount("");
-    setDescription("");
-    setSplitAll(true);
-    setSelectedIds(members.map((m) => m.id));
-  };
+  // ダイアログを開いたときに初期化（追加 / 編集 両対応）。
+  useEffect(() => {
+    if (!open) return;
+    if (payment) {
+      const splitIds: number[] = JSON.parse(payment.splitMemberIds);
+      setPayerId(String(payment.payerId));
+      setAmount(String(Math.round(payment.amount)));
+      setDescription(payment.description);
+      const mode = (payment.splitMode ?? "equal") as SplitMode;
+      setSplitMode(mode);
+      setSelectedIds(splitIds);
+      const detail: Record<string, number> = payment.splitDetails ? JSON.parse(payment.splitDetails) : {};
+      setWeights(Object.fromEntries(splitIds.map((id) => [id, String(mode === "ratio" ? detail[String(id)] ?? 1 : 1)])));
+      setAmounts(Object.fromEntries(splitIds.map((id) => [id, mode === "amount" ? String(detail[String(id)] ?? "") : ""])));
+    } else {
+      const allIds = members.map((m) => m.id);
+      setPayerId("");
+      setAmount("");
+      setDescription("");
+      setSplitMode("equal");
+      setSelectedIds(allIds);
+      setWeights(Object.fromEntries(allIds.map((id) => [id, "1"])));
+      setAmounts(Object.fromEntries(allIds.map((id) => [id, ""])));
+    }
+  }, [open, payment, members]);
 
-  const addMutation = useMutation({
-    mutationFn: async (data: { payerId: number; amount: number; description: string; splitMemberIds: number[] }) => {
-      const res = await apiRequest("POST", `/api/events/${eventId}/payments`, data);
+  const mutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const url = isEdit
+        ? `/api/events/${eventId}/payments/${payment!.id}`
+        : `/api/events/${eventId}/payments`;
+      const res = await apiRequest(isEdit ? "PATCH" : "POST", url, data);
       return res.json();
     },
     onSuccess: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
-      toast({ title: "支払いを追加しました" });
+      toast({ title: isEdit ? "支払いを更新しました" : "支払いを追加しました" });
       onOpenChange(false);
-      resetForm();
     },
     onError: (err: Error) => {
       toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
@@ -93,36 +140,75 @@ function AddPaymentDialog({ open, onOpenChange, eventId, members }: AddPaymentDi
   });
 
   const toggleMember = (id: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
+
+  const amountNum = Math.round(parseFloat(amount));
+  const orderedSelected = members.map((m) => m.id).filter((id) => selectedIds.includes(id));
+
+  // プレビュー：各参加者の負担額（整数円、合計＝金額）。
+  const preview = useMemo<Map<number, number>>(() => {
+    if (!Number.isFinite(amountNum) || amountNum <= 0 || orderedSelected.length === 0) return new Map();
+    if (splitMode === "equal") return splitYen(amountNum, orderedSelected);
+    if (splitMode === "ratio") {
+      const w: Record<number, number> = {};
+      orderedSelected.forEach((id) => { w[id] = Math.max(0, parseFloat(weights[id] ?? "0") || 0); });
+      return splitYen(amountNum, orderedSelected, w);
+    }
+    const map = new Map<number, number>();
+    orderedSelected.forEach((id) => map.set(id, Math.round(parseFloat(amounts[id] ?? "0") || 0)));
+    return map;
+  }, [amountNum, orderedSelected, splitMode, weights, amounts]);
+
+  const amountsSum = splitMode === "amount"
+    ? orderedSelected.reduce((acc, id) => acc + (Math.round(parseFloat(amounts[id] ?? "0") || 0)), 0)
+    : 0;
+  const amountsMatch = splitMode !== "amount" || amountsSum === amountNum;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const amtNum = parseFloat(amount);
-    if (!payerId || isNaN(amtNum) || amtNum <= 0 || !description.trim()) {
+    if (!payerId || !Number.isFinite(amountNum) || amountNum <= 0 || !description.trim()) {
       toast({ title: "入力が不完全です", description: "すべての項目を入力してください", variant: "destructive" });
       return;
     }
-    const finalIds = splitAll ? members.map((m) => m.id) : selectedIds;
-    if (finalIds.length === 0) {
+    if (orderedSelected.length === 0) {
       toast({ title: "割り勘対象を選んでください", variant: "destructive" });
       return;
     }
-    addMutation.mutate({
-      payerId: parseInt(payerId),
-      amount: amtNum,
+    if (splitMode === "amount" && !amountsMatch) {
+      toast({ title: "内訳が金額と一致しません", description: `内訳合計 ¥${amountsSum.toLocaleString("ja-JP")} / 金額 ¥${(amountNum || 0).toLocaleString("ja-JP")}`, variant: "destructive" });
+      return;
+    }
+    if (splitMode === "ratio" && orderedSelected.every((id) => (parseFloat(weights[id] ?? "0") || 0) <= 0)) {
+      toast({ title: "比率を入力してください", variant: "destructive" });
+      return;
+    }
+
+    const base = {
+      payerId: parseInt(payerId, 10),
+      amount: amountNum,
       description: description.trim(),
-      splitMemberIds: finalIds,
-    });
+      splitMemberIds: orderedSelected,
+      splitMode,
+    };
+    if (splitMode === "ratio") {
+      const w: Record<string, number> = {};
+      orderedSelected.forEach((id) => { w[String(id)] = Math.max(0, parseFloat(weights[id] ?? "0") || 0); });
+      mutation.mutate({ ...base, weights: w });
+    } else if (splitMode === "amount") {
+      const a: Record<string, number> = {};
+      orderedSelected.forEach((id) => { a[String(id)] = Math.round(parseFloat(amounts[id] ?? "0") || 0); });
+      mutation.mutate({ ...base, amounts: a });
+    } else {
+      mutation.mutate(base);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) resetForm(); }}>
-      <DialogContent className="max-w-sm mx-4">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm mx-4 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">支払いを追加</DialogTitle>
+          <DialogTitle className="text-base">{isEdit ? "支払いを編集" : "支払いを追加"}</DialogTitle>
           <DialogDescription className="text-sm">誰が何をいくら払ったか記録します</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-1">
@@ -150,6 +236,7 @@ function AddPaymentDialog({ open, onOpenChange, eventId, members }: AddPaymentDi
               type="number"
               min="1"
               step="1"
+              inputMode="numeric"
               placeholder="例：3500"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -167,45 +254,238 @@ function AddPaymentDialog({ open, onOpenChange, eventId, members }: AddPaymentDi
             />
           </div>
 
+          {/* 割り勘モード */}
+          <div className="space-y-2">
+            <Label className="text-sm">割り勘の方法</Label>
+            <RadioGroup
+              value={splitMode}
+              onValueChange={(v) => setSplitMode(v as SplitMode)}
+              className="grid grid-cols-3 gap-2"
+            >
+              {([
+                { value: "equal", label: "均等", icon: SplitSquareHorizontal },
+                { value: "ratio", label: "比率", icon: Scale },
+                { value: "amount", label: "金額指定", icon: Coins },
+              ] as const).map(({ value, label, icon: Icon }) => (
+                <label
+                  key={value}
+                  htmlFor={`mode-${value}`}
+                  className={`flex flex-col items-center gap-1 rounded-lg border p-2 cursor-pointer text-xs transition-colors ${
+                    splitMode === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+                  }`}
+                  data-testid={`split-mode-${value}`}
+                >
+                  <RadioGroupItem value={value} id={`mode-${value}`} className="sr-only" />
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </label>
+              ))}
+            </RadioGroup>
+          </div>
+
+          {/* 割り勘対象 */}
           <div className="space-y-2">
             <Label className="text-sm">割り勘する人</Label>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="split-all"
-                data-testid="checkbox-split-all"
-                checked={splitAll}
-                onCheckedChange={(v) => setSplitAll(!!v)}
-              />
-              <label htmlFor="split-all" className="text-sm cursor-pointer">全員で割り勘</label>
-            </div>
-            {!splitAll && (
-              <div className="space-y-1.5 ml-1">
-                {members.map((m) => (
+            <div className="space-y-1.5">
+              {members.map((m) => {
+                const checked = selectedIds.includes(m.id);
+                const share = preview.get(m.id);
+                return (
                   <div key={m.id} className="flex items-center gap-2">
                     <Checkbox
                       id={`split-member-${m.id}`}
                       data-testid={`checkbox-split-member-${m.id}`}
-                      checked={selectedIds.includes(m.id)}
+                      checked={checked}
                       onCheckedChange={() => toggleMember(m.id)}
                     />
-                    <label htmlFor={`split-member-${m.id}`} className="text-sm cursor-pointer">{m.name}</label>
+                    <label htmlFor={`split-member-${m.id}`} className="text-sm cursor-pointer flex-1 truncate">{m.name}</label>
+                    {checked && splitMode === "ratio" && (
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        className="h-7 w-16 text-xs"
+                        value={weights[m.id] ?? ""}
+                        onChange={(e) => setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                        data-testid={`weight-${m.id}`}
+                        aria-label={`${m.name} の比率`}
+                      />
+                    )}
+                    {checked && splitMode === "amount" && (
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        className="h-7 w-20 text-xs"
+                        placeholder="円"
+                        value={amounts[m.id] ?? ""}
+                        onChange={(e) => setAmounts((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                        data-testid={`amount-${m.id}`}
+                        aria-label={`${m.name} の金額`}
+                      />
+                    )}
+                    {checked && splitMode !== "amount" && share !== undefined && (
+                      <span className="text-xs text-muted-foreground w-16 text-right tabular-nums">{formatYen(share)}</span>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
+            {splitMode === "amount" && Number.isFinite(amountNum) && amountNum > 0 && (
+              <p className={`text-xs text-right ${amountsMatch ? "text-muted-foreground" : "text-destructive"}`}>
+                内訳合計 ¥{amountsSum.toLocaleString("ja-JP")} / 金額 ¥{amountNum.toLocaleString("ja-JP")}
+                {!amountsMatch && `（差 ¥${Math.abs(amountNum - amountsSum).toLocaleString("ja-JP")}）`}
+              </p>
             )}
           </div>
 
           <Button
             type="submit"
             className="w-full"
-            disabled={addMutation.isPending}
+            disabled={mutation.isPending}
             data-testid="button-submit-payment"
           >
-            {addMutation.isPending ? "追加中..." : "追加する"}
+            {mutation.isPending ? "保存中..." : isEdit ? "更新する" : "追加する"}
           </Button>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// メンバー追加ダイアログ
+// ---------------------------------------------------------------------------
+function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpenChange: (v: boolean) => void; eventId: number }) {
+  const { toast } = useToast();
+  const queryClientHook = useQueryClient();
+  const [name, setName] = useState("");
+
+  useEffect(() => { if (open) setName(""); }, [open]);
+
+  const mutation = useMutation({
+    mutationFn: async (memberName: string) => {
+      const res = await apiRequest("POST", `/api/events/${eventId}/members`, { name: memberName });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
+      toast({ title: "メンバーを追加しました" });
+      onOpenChange(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm mx-4">
+        <DialogHeader>
+          <DialogTitle className="text-base">メンバーを追加</DialogTitle>
+          <DialogDescription className="text-sm">後から参加する人を追加できます</DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (name.trim()) mutation.mutate(name.trim()); }}
+          className="space-y-4 pt-1"
+        >
+          <Input
+            placeholder="名前"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="input-new-member"
+            autoFocus
+          />
+          <Button type="submit" className="w-full" disabled={mutation.isPending || !name.trim()} data-testid="button-submit-member">
+            {mutation.isPending ? "追加中..." : "追加する"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 共有ダイアログ（リンク + QR コード）
+// ---------------------------------------------------------------------------
+function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChange: (v: boolean) => void; event: Event }) {
+  const { toast } = useToast();
+  const [qr, setQr] = useState<string>("");
+  const [copied, setCopied] = useState(false);
+
+  const shareUrl = `${window.location.origin}${window.location.pathname}#/event/${event.id}`;
+
+  useEffect(() => {
+    if (!open) return;
+    setCopied(false);
+    QRCode.toDataURL(shareUrl, { width: 220, margin: 1 })
+      .then(setQr)
+      .catch(() => setQr(""));
+  }, [open, shareUrl]);
+
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(shareUrl);
+    setCopied(ok);
+    toast({ title: ok ? "リンクをコピーしました" : "コピーに失敗しました", variant: ok ? undefined : "destructive" });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm mx-4">
+        <DialogHeader>
+          <DialogTitle className="text-base">イベントを共有</DialogTitle>
+          <DialogDescription className="text-sm">リンクや QR コードで仲間を招待できます</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {qr && (
+            <div className="flex justify-center">
+              <img src={qr} alt="QRコード" className="rounded-lg border border-border" width={180} height={180} />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-sm">共有リンク</Label>
+            <div className="flex gap-2">
+              <Input readOnly value={shareUrl} className="text-xs" data-testid="input-share-url" onFocus={(e) => e.target.select()} />
+              <Button type="button" variant="outline" size="icon" onClick={handleCopy} data-testid="button-copy-link" aria-label="リンクをコピー">
+                {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+            合言葉でも参加できます： <span className="font-semibold text-foreground">{event.keyword}</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 各自の収支バー
+// ---------------------------------------------------------------------------
+function BalanceBar({ name, balance, max }: { name: string; balance: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, (Math.abs(balance) / max) * 100) : 0;
+  const positive = balance >= 0;
+  return (
+    <div className="space-y-1" data-testid={`balance-${name}`}>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-foreground truncate">{name}</span>
+        <span className={positive ? "text-primary font-semibold tabular-nums" : "text-destructive font-semibold tabular-nums"}>
+          {formatSignedYen(balance)}
+        </span>
+      </div>
+      <div className="relative h-2 rounded-full bg-muted overflow-hidden flex">
+        <div className="w-1/2 flex justify-end">
+          {!positive && <div className="h-full rounded-l-full bg-destructive" style={{ width: `${pct}%` }} />}
+        </div>
+        <div className="w-1/2 flex justify-start">
+          {positive && <div className="h-full rounded-r-full bg-primary" style={{ width: `${pct}%` }} />}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -216,42 +496,37 @@ export default function EventPage() {
   const { toast } = useToast();
   const { theme, toggleTheme } = useTheme();
   const queryClientHook = useQueryClient();
-  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [settleConfirmOpen, setSettleConfirmOpen] = useState(false);
+  const [keywordCopied, setKeywordCopied] = useState(false);
+  const [exportingImage, setExportingImage] = useState(false);
+  const settlementRef = useRef<HTMLDivElement>(null);
 
   const eventQuery = useQuery<Event>({
     queryKey: ["/api/events", eventId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/events/${eventId}`);
-      return res.json();
-    },
+    queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
   const membersQuery = useQuery<Member[]>({
     queryKey: ["/api/events", eventId, "members"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/events/${eventId}/members`);
-      return res.json();
-    },
+    queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}/members`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
   const paymentsQuery = useQuery<Payment[]>({
     queryKey: ["/api/events", eventId, "payments"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/events/${eventId}/payments`);
-      return res.json();
-    },
+    queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}/payments`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
   const settlementQuery = useQuery<{ transfers: Array<{ from: string; to: string; amount: number }>; balances: Record<number, number> }>({
     queryKey: ["/api/events", eventId, "settlement"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/events/${eventId}/settlement`);
-      return res.json();
-    },
+    queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}/settlement`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
@@ -265,21 +540,18 @@ export default function EventPage() {
       toast({ title: "支払いを削除しました" });
     },
     onError: (err: Error) => {
-      toast({ title: "エラー", description: err.message, variant: "destructive" });
+      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
     },
   });
 
   const settleMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/events/${eventId}/settle`);
-      return res.json();
-    },
+    mutationFn: async () => (await apiRequest("POST", `/api/events/${eventId}/settle`)).json(),
     onSuccess: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId] });
       toast({ title: "精算が完了しました！", description: "このイベントは精算済みになりました" });
     },
     onError: (err: Error) => {
-      toast({ title: "エラー", description: err.message, variant: "destructive" });
+      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
     },
   });
 
@@ -288,7 +560,58 @@ export default function EventPage() {
   const paymentList = paymentsQuery.data ?? [];
   const settlement = settlementQuery.data;
 
-  const getMemberName = (id: number) => memberList.find((m) => m.id === id)?.name ?? "不明";
+  const getMemberName = (memberId: number) => memberList.find((m) => m.id === memberId)?.name ?? "不明";
+
+  const totalSpent = useMemo(() => paymentList.reduce((acc, p) => acc + Math.round(p.amount), 0), [paymentList]);
+  const perPersonAvg = memberList.length > 0 ? Math.round(totalSpent / memberList.length) : 0;
+  const maxAbsBalance = useMemo(
+    () => Math.max(1, ...memberList.map((m) => Math.abs(Math.round(settlement?.balances[m.id] ?? 0)))),
+    [memberList, settlement],
+  );
+
+  const sortedPayments = useMemo(
+    () => [...paymentList].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [paymentList],
+  );
+
+  const handleCopyKeyword = async () => {
+    if (!event) return;
+    const ok = await copyToClipboard(event.keyword);
+    setKeywordCopied(ok);
+    toast({ title: ok ? "合言葉をコピーしました" : "コピーに失敗しました", variant: ok ? undefined : "destructive" });
+    if (ok) setTimeout(() => setKeywordCopied(false), 2000);
+  };
+
+  const exportData = event && settlement
+    ? { eventName: event.name, members: memberList, balances: settlement.balances, transfers: settlement.transfers }
+    : null;
+
+  const handleCopySummary = async () => {
+    if (!exportData) return;
+    const ok = await copyToClipboard(buildSettlementText(exportData));
+    toast({ title: ok ? "精算結果をコピーしました" : "コピーに失敗しました", variant: ok ? undefined : "destructive" });
+  };
+
+  const handleDownloadCsv = () => {
+    if (!exportData || !event) return;
+    downloadTextFile(`${safeFileName(event.name)}_精算.csv`, buildSettlementCsv(exportData), "text/csv;charset=utf-8");
+    toast({ title: "CSVをダウンロードしました" });
+  };
+
+  const handleDownloadImage = async () => {
+    if (!settlementRef.current || !event) return;
+    setExportingImage(true);
+    try {
+      const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
+      const dataUrl = await toPng(settlementRef.current, { backgroundColor: bg, pixelRatio: 2 });
+      triggerDownload(`${safeFileName(event.name)}_精算.png`, dataUrl);
+      toast({ title: "画像をダウンロードしました" });
+    } catch {
+      toast({ title: "画像の生成に失敗しました", variant: "destructive" });
+    } finally {
+      setExportingImage(false);
+    }
+  };
 
   if (isNaN(eventId) || eventId <= 0) {
     return (
@@ -308,17 +631,17 @@ export default function EventPage() {
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <Link href="/">
               <button className="p-1 rounded-md hover:bg-accent transition-colors" data-testid="button-back">
                 <ArrowLeft className="h-4 w-4" />
               </button>
             </Link>
-            <WaricanLogo className="w-7 h-7 text-primary" />
+            <WaricanLogo className="w-7 h-7 text-primary flex-shrink-0" />
             {eventQuery.isLoading ? (
               <Skeleton className="h-4 w-24" />
             ) : (
-              <span className="font-bold text-sm text-foreground truncate max-w-[150px]">
+              <span className="font-bold text-sm text-foreground truncate max-w-[140px]">
                 {event?.name ?? "イベント"}
               </span>
             )}
@@ -326,6 +649,11 @@ export default function EventPage() {
           <div className="flex items-center gap-1">
             {event?.isSettled && (
               <Badge variant="secondary" className="text-xs">精算済み</Badge>
+            )}
+            {event && (
+              <Button variant="ghost" size="icon" onClick={() => setShareOpen(true)} data-testid="button-share" aria-label="共有">
+                <Share2 className="h-4 w-4" />
+              </Button>
             )}
             <Button
               variant="ghost"
@@ -341,12 +669,16 @@ export default function EventPage() {
       </header>
 
       <main className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
-        {/* Event info skeleton */}
-        {eventQuery.isLoading && (
-          <div className="space-y-2 mb-4">
-            <Skeleton className="h-5 w-40" />
-            <Skeleton className="h-4 w-64" />
-          </div>
+        {/* Keyword chip */}
+        {event && (
+          <button
+            onClick={handleCopyKeyword}
+            className="inline-flex items-center gap-1.5 mb-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            data-testid="button-copy-keyword"
+          >
+            合言葉: <span className="font-semibold text-foreground">{event.keyword}</span>
+            {keywordCopied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
+          </button>
         )}
 
         {/* Members bar */}
@@ -362,6 +694,15 @@ export default function EventPage() {
                 {m.name}
               </Badge>
             ))}
+            {!event?.isSettled && memberList.length < 50 && (
+              <button
+                onClick={() => setAddMemberOpen(true)}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                data-testid="button-add-member"
+              >
+                <UserPlus className="h-3.5 w-3.5" /> 追加
+              </button>
+            )}
           </div>
         )}
 
@@ -382,12 +723,20 @@ export default function EventPage() {
             {!event?.isSettled && (
               <Button
                 className="w-full mb-4"
-                onClick={() => setAddPaymentOpen(true)}
+                onClick={() => { setEditingPayment(null); setPaymentDialogOpen(true); }}
                 data-testid="button-add-payment"
               >
                 <PlusCircle className="h-4 w-4 mr-2" />
                 支払いを追加
               </Button>
+            )}
+
+            {/* Summary row */}
+            {paymentList.length > 0 && (
+              <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground">
+                <span>支払い {paymentList.length} 件</span>
+                <span>合計 <span className="font-semibold text-foreground">{formatYen(totalSpent)}</span></span>
+              </div>
             )}
 
             {paymentsQuery.isLoading ? (
@@ -411,36 +760,52 @@ export default function EventPage() {
               </Card>
             ) : (
               <div className="space-y-2">
-                {paymentList.map((p) => {
+                {sortedPayments.map((p) => {
                   const splitIds: number[] = JSON.parse(p.splitMemberIds);
                   const isAllMembers = splitIds.length === memberList.length;
+                  const mode = (p.splitMode ?? "equal") as SplitMode;
                   return (
                     <Card key={p.id} data-testid={`card-payment-${p.id}`}>
                       <CardContent className="pt-3 pb-3 flex items-start gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                             <span className="font-semibold text-sm text-foreground">{formatYen(p.amount)}</span>
                             <span className="text-xs text-muted-foreground">← {getMemberName(p.payerId)}</span>
+                            {mode !== "equal" && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{SPLIT_MODE_LABEL[mode]}</Badge>
+                            )}
                           </div>
                           <p className="text-sm text-foreground mb-1">{p.description}</p>
                           <p className="text-xs text-muted-foreground">
-                            {isAllMembers
+                            {isAllMembers && mode === "equal"
                               ? "全員で割り勘"
-                              : `${splitIds.map((id) => getMemberName(id)).join("、")} で割り勘`}
+                              : `${splitIds.map((memberId) => getMemberName(memberId)).join("、")} で割り勘`}
                           </p>
                         </div>
                         {!event?.isSettled && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-muted-foreground hover:text-destructive flex-shrink-0 h-7 w-7"
-                            onClick={() => setPaymentToDelete(p)}
-                            disabled={deletePaymentMutation.isPending}
-                            data-testid={`button-delete-payment-${p.id}`}
-                            aria-label="支払いを削除"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex flex-col gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-primary h-7 w-7"
+                              onClick={() => { setEditingPayment(p); setPaymentDialogOpen(true); }}
+                              data-testid={`button-edit-payment-${p.id}`}
+                              aria-label="支払いを編集"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-destructive h-7 w-7"
+                              onClick={() => setPaymentToDelete(p)}
+                              disabled={deletePaymentMutation.isPending}
+                              data-testid={`button-delete-payment-${p.id}`}
+                              aria-label="支払いを削除"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         )}
                       </CardContent>
                     </Card>
@@ -451,9 +816,7 @@ export default function EventPage() {
 
             <AlertDialog
               open={paymentToDelete !== null}
-              onOpenChange={(open) => {
-                if (!open) setPaymentToDelete(null);
-              }}
+              onOpenChange={(o) => { if (!o) setPaymentToDelete(null); }}
             >
               {paymentToDelete && (
                 <AlertDialogContent data-testid="dialog-delete-payment">
@@ -465,9 +828,7 @@ export default function EventPage() {
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel data-testid="button-cancel-delete-payment">
-                      キャンセル
-                    </AlertDialogCancel>
+                    <AlertDialogCancel data-testid="button-cancel-delete-payment">キャンセル</AlertDialogCancel>
                     <AlertDialogAction
                       className={buttonVariants({ variant: "destructive" })}
                       onClick={() => {
@@ -490,9 +851,7 @@ export default function EventPage() {
               <div className="space-y-3">
                 {[1, 2].map((i) => (
                   <Card key={i}>
-                    <CardContent className="pt-4 pb-4">
-                      <Skeleton className="h-5 w-full" />
-                    </CardContent>
+                    <CardContent className="pt-4 pb-4"><Skeleton className="h-5 w-full" /></CardContent>
                   </Card>
                 ))}
               </div>
@@ -506,72 +865,99 @@ export default function EventPage() {
               </Card>
             ) : (
               <div className="space-y-4">
-                {/* Balance summary */}
-                {settlement && memberList.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2 pt-4">
-                      <CardTitle className="text-sm font-semibold">各自の収支</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pb-4 space-y-1.5">
-                      {memberList.map((m) => {
-                        const bal = settlement.balances[m.id] ?? 0;
-                        const rounded = Math.round(bal);
-                        return (
-                          <div key={m.id} className="flex items-center justify-between text-sm" data-testid={`balance-${m.id}`}>
-                            <span className="text-foreground">{m.name}</span>
-                            <span className={rounded >= 0 ? "text-primary font-medium" : "text-destructive font-medium"}>
-                              {formatSignedYen(rounded)}
-                            </span>
+                <div ref={settlementRef} className="space-y-4 bg-background">
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <Card>
+                      <CardContent className="p-3 text-center">
+                        <p className="text-[10px] text-muted-foreground mb-0.5">総支出</p>
+                        <p className="text-sm font-bold text-foreground tabular-nums">{formatYen(totalSpent)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3 text-center">
+                        <p className="text-[10px] text-muted-foreground mb-0.5">件数</p>
+                        <p className="text-sm font-bold text-foreground tabular-nums">{paymentList.length}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3 text-center">
+                        <p className="text-[10px] text-muted-foreground mb-0.5">1人平均</p>
+                        <p className="text-sm font-bold text-foreground tabular-nums">{formatYen(perPersonAvg)}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Balance bars */}
+                  {settlement && memberList.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2 pt-4">
+                        <CardTitle className="text-sm font-semibold">各自の収支</CardTitle>
+                        <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
+                      </CardHeader>
+                      <CardContent className="pb-4 space-y-3">
+                        {memberList.map((m) => (
+                          <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Transfers */}
+                  {settlement?.transfers.length === 0 ? (
+                    <Card>
+                      <CardContent className="py-6 text-center">
+                        <CheckCircle2 className="h-8 w-8 text-primary mx-auto mb-2" />
+                        <p className="text-sm font-medium text-foreground">精算不要！</p>
+                        <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card>
+                      <CardHeader className="pb-2 pt-4">
+                        <CardTitle className="text-sm font-semibold">送金リスト</CardTitle>
+                        <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
+                      </CardHeader>
+                      <CardContent className="pb-4 space-y-2">
+                        {settlement?.transfers.map((t, i) => (
+                          <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50" data-testid={`transfer-${i}`}>
+                            <span className="text-sm font-medium text-foreground">{t.from}</span>
+                            <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
+                            <span className="text-sm font-medium text-foreground">{t.to}</span>
+                            <span className="ml-auto text-sm font-bold text-primary">{formatYen(t.amount)}</span>
                           </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                )}
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
 
-                {/* Transfers */}
-                {settlement?.transfers.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-6 text-center">
-                      <CheckCircle2 className="h-8 w-8 text-primary mx-auto mb-2" />
-                      <p className="text-sm font-medium text-foreground">清算不要！</p>
-                      <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card>
-                    <CardHeader className="pb-2 pt-4">
-                      <CardTitle className="text-sm font-semibold">送金リスト</CardTitle>
-                      <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
-                    </CardHeader>
-                    <CardContent className="pb-4 space-y-2">
-                      {settlement?.transfers.map((t, i) => (
-                        <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50" data-testid={`transfer-${i}`}>
-                          <span className="text-sm font-medium text-foreground">{t.from}</span>
-                          <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
-                          <span className="text-sm font-medium text-foreground">{t.to}</span>
-                          <span className="ml-auto text-sm font-bold text-primary">{formatYen(t.amount)}</span>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
+                {/* Export actions */}
+                <div className="grid grid-cols-3 gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCopySummary} data-testid="button-copy-summary">
+                    <ClipboardCopy className="h-4 w-4 mr-1" /> コピー
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleDownloadCsv} data-testid="button-download-csv">
+                    <FileDown className="h-4 w-4 mr-1" /> CSV
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleDownloadImage} disabled={exportingImage} data-testid="button-download-image">
+                    <ImageIcon className="h-4 w-4 mr-1" /> {exportingImage ? "..." : "画像"}
+                  </Button>
+                </div>
 
-                {/* Settle button */}
-                {!event?.isSettled && (
+                {/* Settle */}
+                {!event?.isSettled ? (
                   <Button
                     variant="outline"
                     className="w-full border-primary text-primary hover:bg-primary hover:text-primary-foreground"
-                    onClick={() => settleMutation.mutate()}
+                    onClick={() => setSettleConfirmOpen(true)}
                     disabled={settleMutation.isPending}
                     data-testid="button-settle"
                   >
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                     {settleMutation.isPending ? "精算中..." : "精算する"}
                   </Button>
-                )}
-
-                {event?.isSettled && (
+                ) : (
                   <Card className="border-primary/30 bg-primary/5">
                     <CardContent className="py-4 flex items-center gap-3">
                       <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0" />
@@ -588,13 +974,36 @@ export default function EventPage() {
         </Tabs>
       </main>
 
-      {/* Add Payment Dialog */}
-      <AddPaymentDialog
-        open={addPaymentOpen}
-        onOpenChange={setAddPaymentOpen}
+      {/* Dialogs */}
+      <PaymentDialog
+        open={paymentDialogOpen}
+        onOpenChange={(v) => { setPaymentDialogOpen(v); if (!v) setEditingPayment(null); }}
         eventId={eventId}
         members={memberList}
+        payment={editingPayment}
       />
+      <AddMemberDialog open={addMemberOpen} onOpenChange={setAddMemberOpen} eventId={eventId} />
+      {event && <ShareDialog open={shareOpen} onOpenChange={setShareOpen} event={event} />}
+
+      <AlertDialog open={settleConfirmOpen} onOpenChange={setSettleConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-settle-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>このイベントを精算済みにしますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              精算済みにすると、支払いの追加・編集・削除やメンバーの追加ができなくなります。送金が完了してから実行してください。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-settle">キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { settleMutation.mutate(); setSettleConfirmOpen(false); }}
+              data-testid="button-confirm-settle"
+            >
+              精算する
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
