@@ -11,6 +11,7 @@
 - **柔軟な割り勘** — 全員で割り勘 or 特定メンバーだけで割り勘をその都度選択
 - **自動精算** — 最小回数の送金リストを算出するグリーディアルゴリズム
 - **管理者パネル** — ID/PW 認証付き、全イベントの一覧・削除
+- **Android アプリ版** — 同じバックエンドに接続するネイティブアプリ（React Native / Expo）。詳細は [モバイルアプリ（Android）](#モバイルアプリandroid) を参照
 
 ## 技術スタック
 
@@ -90,6 +91,66 @@ npm start
 > **本番運用時は必ず変更してください。**  
 > 管理者パネルへは、ホーム画面下部の「管理者ログイン」リンクからアクセスできます。
 
+## モバイルアプリ（Android）
+
+`mobile/` ディレクトリに **React Native（Expo）製の Android アプリ**があります。Web 版と同じ Express バックエンドに HTTP で接続するため、サーバー側のコードは変更不要です（React Native の `fetch` は CORS の制約を受けません）。
+
+UI はネイティブで再実装していますが、割り勘の配分ロジック（`splitYen`）や金額表示などのロジックは Web 版と揃えています。バックエンドの URL は **別オリジン**になるため、`EXPO_PUBLIC_API_BASE` 環境変数で接続先を指定します。
+
+### セットアップ
+
+```bash
+cd mobile
+npm install
+
+# 接続先バックエンドを設定（例：Render のデプロイ URL）
+cp .env.example .env
+#  .env を編集: EXPO_PUBLIC_API_BASE=https://<service>.onrender.com
+```
+
+> Android エミュレータから開発マシン上のローカルサーバー（`npm run dev`）に接続する場合は
+> `EXPO_PUBLIC_API_BASE=http://10.0.2.2:5000` を使います。
+
+### 開発（Expo）
+
+```bash
+cd mobile
+npx expo start            # QR を Expo Go で読み取る、または `a` で Android エミュレータ起動
+npm run typecheck         # TypeScript 型チェック
+```
+
+`EXPO_PUBLIC_*` はビルド時にインライン化されるため、`.env` を変更したら Expo を再起動してください。
+
+### Android アプリ（APK / AAB）のビルド
+
+この環境ではネイティブビルドは行いません。お手元の環境で以下のいずれかを実行します。
+
+```bash
+cd mobile
+
+# A) ローカルビルド（要 Android Studio / SDK）
+npx expo prebuild --platform android   # android/ プロジェクトを生成
+#  → Android Studio で開く、または ./android/gradlew assembleRelease
+
+# B) EAS Build（クラウドビルド、Expo アカウントが必要）
+npm install -g eas-cli
+eas build --platform android
+```
+
+> アプリアイコン / スプラッシュは未設定（Expo のデフォルト）です。`mobile/app.json` の
+> `android.package`（既定 `com.warikan.master`）やアイコンは配信前に調整してください。
+
+### mobile/ の npm スクリプト
+
+| コマンド | 説明 |
+|---------|------|
+| `npm start` | Expo 開発サーバー起動 |
+| `npm run android` | Android エミュレータ/実機で起動 |
+| `npm run typecheck` | TypeScript 型チェック（`tsc --noEmit`） |
+
+> 配信前の残タスク（アイコン配置・署名 / EAS Build・ストア申請・iOS 対応など）は
+> [docs/mobile-todo.md](docs/mobile-todo.md) にまとめています。
+
 ## プロジェクト構成
 
 ```
@@ -116,6 +177,16 @@ warikan-master/
 │   └── static.ts            # 本番静的ファイル配信
 ├── shared/
 │   └── schema.ts            # DB スキーマ + Zod バリデーション
+├── mobile/                  # Android アプリ（React Native / Expo）
+│   ├── app.json             # Expo 設定（アプリ名 / package / Android）
+│   ├── src/
+│   │   ├── App.tsx          # プロバイダ構成 + ナビゲーション
+│   │   ├── api/             # HTTP クライアント（EXPO_PUBLIC_API_BASE）
+│   │   ├── screens/         # Home / Create / Event / Admin / Help
+│   │   ├── components/      # 共通 UI・支払いモーダル・トースト
+│   │   ├── lib/             # 型・割り勘ロジック・通貨整形
+│   │   └── theme/           # カラートークン + ライト/ダーク
+│   └── .env.example         # EXPO_PUBLIC_API_BASE
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
