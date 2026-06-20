@@ -148,6 +148,9 @@ eas build --platform android
 | `npm run android` | Android エミュレータ/実機で起動 |
 | `npm run typecheck` | TypeScript 型チェック（`tsc --noEmit`） |
 
+> 配信前の残タスク（アイコン配置・署名 / EAS Build・ストア申請・iOS 対応など）は
+> [docs/mobile-todo.md](docs/mobile-todo.md) にまとめています。
+
 ## プロジェクト構成
 
 ```
