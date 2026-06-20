@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "割り勘マスター",
+    "slug": "warikan-master",
+    "scheme": "warikanmaster",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.warikan.master",
+      "versionCode": 1
+    }
+  }
+}

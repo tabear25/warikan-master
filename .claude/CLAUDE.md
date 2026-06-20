@@ -14,6 +14,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no test runner configured in this project.
 
+### Mobile app (`mobile/`)
+
+| Command (run inside `mobile/`) | Purpose |
+|---------|---------|
+| `npm install` | Install Expo/React Native deps (separate `package.json` from the web app) |
+| `npm run typecheck` | TypeScript check (`tsc --noEmit`) |
+| `npm start` / `npx expo start` | Start the Expo dev server |
+| `npm run android` | Launch on an Android emulator/device |
+| `npx expo export --platform android` | Build the JS bundle (validates Metro resolution) |
+| `npx expo prebuild --platform android` | Generate the native `android/` project for an APK/AAB build |
+
+Native builds (APK/AAB, emulator) cannot run in the cloud sandbox; only `npm install`, `typecheck`, and `expo export` are verifiable here. The Expo API (`api.expo.dev`) is blocked by the network policy, so `npx expo install` fails — pin Expo package versions and install with plain `npm install` instead.
+
 ## Architecture
 
 Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite via Drizzle ORM.
@@ -25,6 +38,8 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite 
 **Shared schema** (`shared/schema.ts`): Drizzle table definitions and Zod schemas are co-located here and imported by both client and server via the `@shared/*` path alias. `@/*` maps to `client/src/`.
 
 **Database tables**: `events`, `members`, `payments`, `admins`. The `payments.splitMemberIds` column stores a JSON array of member IDs.
+
+**Mobile app** (`mobile/`): A standalone **React Native (Expo SDK 52, Android-first)** app with its own `package.json` — kept separate from the web app to avoid React/dependency conflicts. It reimplements the five screens (`mobile/src/screens/`: Home, Create, Event, Admin, Help) natively, using React Navigation (native stack) instead of wouter, but mirrors the web app's logic and Japanese copy. It talks to the same Express API over HTTP; the base URL is injected via the `EXPO_PUBLIC_API_BASE` env var (`mobile/src/api/client.ts`). React Native's `fetch` is not subject to CORS, so the server needs no changes. The mobile app is **self-contained**: rather than importing `@shared`, the few pure helpers it needs (split algorithm, currency formatting, row types) are copied into `mobile/src/lib/` — keep these in sync with `shared/` if API shapes or the split logic change. Admin credentials are persisted in the device keystore via `expo-secure-store` (`mobile/src/storage/admin.ts`).
 
 ## Key Logic
 
@@ -50,3 +65,4 @@ Render-specific constraints to keep in mind:
 | `ADMIN_USERNAME` | — (required) | Admin login username |
 | `ADMIN_PASSWORD` | — | Admin login password (plaintext; hashed at startup). Set this or `ADMIN_PASSWORD_HASH` |
 | `ADMIN_PASSWORD_HASH` | — | Pre-computed bcrypt hash of the admin password (alternative to `ADMIN_PASSWORD`) |
+| `EXPO_PUBLIC_API_BASE` | `""` | (mobile only) Base URL of the backend the Android app connects to, e.g. `https://<service>.onrender.com`. Inlined at build time. |
