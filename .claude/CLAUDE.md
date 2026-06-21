@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npm run build` | Production build — Vite compiles client to `dist/public/`, esbuild bundles server to `dist/index.cjs` |
 | `npm start` | Run the production server |
 | `npm run check` | TypeScript type checking |
-| `npm run db:push` | Apply Drizzle schema changes to SQLite (`data.db`) |
+| `npm run db:push` | Apply Drizzle schema to the database (Turso if `TURSO_*` set, else local `data.db`) |
 
 There is no test runner configured in this project.
 
@@ -29,7 +29,7 @@ Native builds (APK/AAB, emulator) cannot run in the cloud sandbox; only `npm ins
 
 ## Architecture
 
-Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite via Drizzle ORM.
+Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/SQLite via Drizzle ORM. In production the database is **Turso** (cloud libSQL), reached with `@libsql/client` and configured via `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. This keeps data persistent on Render's free tier, whose container filesystem is ephemeral. When those env vars are unset (local dev), `server/storage.ts` falls back to a local SQLite file (`DB_PATH`, default `data.db`). Note libSQL's Drizzle client is **async** — `.get()/.all()/.run()` and `db.transaction()` return Promises, so `await` them.
 
 **Frontend** (`client/src/`): Hash-based routing via wouter. TanStack React Query v5 handles all server state. The `apiRequest()` helper in [client/src/lib/queryClient.ts](client/src/lib/queryClient.ts) is the single HTTP client used throughout. UI uses shadcn/ui components (Radix UI + Tailwind CSS).
 
@@ -53,8 +53,9 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + SQLite 
 
 Render-specific constraints to keep in mind:
 - **Docker-based**: the image is built from [deploy/Dockerfile](deploy/Dockerfile) with `dockerContext: .`. Build/runtime changes must work inside that Dockerfile, not just locally.
-- **Secrets**: `ADMIN_USERNAME` / `ADMIN_PASSWORD` use `sync: false` — they are entered in the Render dashboard, never committed.
+- **Secrets**: `ADMIN_USERNAME` / `ADMIN_PASSWORD` and `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` use `sync: false` — they are entered in the Render dashboard, never committed.
 - **autoDeploy** is enabled: pushes to the tracked branch trigger a redeploy.
+- **Persistence**: data lives in Turso (cloud libSQL), not on the container disk, because Render's free tier has no persistent disk. See [deploy/README.md](deploy/README.md) for Turso setup.
 
 ## Environment Variables
 
@@ -62,6 +63,9 @@ Render-specific constraints to keep in mind:
 |----------|---------|---------|
 | `PORT` | `5000` | Server listen port |
 | `NODE_ENV` | — | `development` enables Vite HMR; `production` serves static files |
+| `TURSO_DATABASE_URL` | — | Turso/libSQL connection URL (`libsql://...`). Set in production for persistent data |
+| `TURSO_AUTH_TOKEN` | — | Turso auth token (paired with `TURSO_DATABASE_URL`) |
+| `DB_PATH` | `data.db` | Local SQLite file path used only when `TURSO_*` is unset (dev fallback) |
 | `ADMIN_USERNAME` | — (required) | Admin login username |
 | `ADMIN_PASSWORD` | — | Admin login password (plaintext; hashed at startup). Set this or `ADMIN_PASSWORD_HASH` |
 | `ADMIN_PASSWORD_HASH` | — | Pre-computed bcrypt hash of the admin password (alternative to `ADMIN_PASSWORD`) |

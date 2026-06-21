@@ -7,9 +7,10 @@
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
-# build tools required by better-sqlite3 (native module)
+# ca-certificates so npm can fetch over HTTPS. No C toolchain needed:
+# @libsql/client ships prebuilt binaries (better-sqlite3 was removed).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
@@ -25,12 +26,14 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=10000
-# Default DB path lives under /app/data so the free-plan deploy works without
-# a persistent disk. To persist across restarts, mount a disk and override
-# DB_PATH (e.g. /data/data.db) — see deploy/render.yaml comments.
-ENV DB_PATH=/app/data/data.db
+# Data lives in a remote Turso/libSQL database so it survives container
+# restarts/redeploys/sleep on Render's free tier (the local filesystem is
+# ephemeral). The server reads TURSO_DATABASE_URL + TURSO_AUTH_TOKEN at
+# runtime — set them in the Render dashboard (see deploy/README.md).
+# If those are unset it falls back to a local file DB (dev only).
 
 # Tini for proper signal handling (graceful SIGTERM on redeploys).
+# ca-certificates is required for the HTTPS/TLS connection to Turso.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -42,10 +45,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 
-# Both default (free-plan, ephemeral) and disk-mount paths.
-RUN mkdir -p /app/data /data
-
 EXPOSE 10000
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# Apply schema (idempotent) then start the server.
+# Apply schema to the Turso database (idempotent) then start the server.
 CMD ["sh", "-c", "npm run db:push -- --force && node dist/index.cjs"]

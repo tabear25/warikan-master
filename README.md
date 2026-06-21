@@ -19,7 +19,7 @@
 |---------|------|
 | フロントエンド | React 18, TypeScript, Tailwind CSS, shadcn/ui |
 | バックエンド | Express 5 (Node.js) |
-| データベース | SQLite (better-sqlite3 + Drizzle ORM) |
+| データベース | Turso / libSQL (@libsql/client + Drizzle ORM)。ローカルは SQLite ファイルにフォールバック |
 | ルーティング | wouter (hash-based) |
 | データ取得 | TanStack React Query v5 |
 | バリデーション | Zod + drizzle-zod |
@@ -40,7 +40,7 @@ cd warikan-master
 # 依存パッケージをインストール
 npm install
 
-# データベースを初期化（SQLite ファイルが自動生成される）
+# データベースを初期化（TURSO_* 未設定ならローカルの data.db が自動生成される）
 npm run db:push
 
 # 開発サーバーを起動
@@ -75,9 +75,15 @@ npm start
 |--------|-----------|------|
 | `PORT` | `5000` | サーバーのリッスンポート |
 | `NODE_ENV` | — | `development` で Vite HMR 有効、`production` で静的ファイル配信 |
+| `TURSO_DATABASE_URL` | — | Turso/libSQL の接続 URL（`libsql://...`）。本番でのデータ永続化に使用 |
+| `TURSO_AUTH_TOKEN` | — | Turso の認証トークン |
+| `DB_PATH` | `data.db` | `TURSO_*` 未設定時に使うローカル SQLite ファイルのパス |
 
-> データベースファイルはプロジェクトルートに `data.db` として自動生成されます。  
-> 環境変数による DB パス指定は現時点では未対応です。
+> 本番では **Turso（クラウド SQLite / libSQL）** にデータを保存します（Render 無料プランでも
+> 再起動・スリープでデータが消えません）。セットアップ手順は
+> [`deploy/README.md`](deploy/README.md) の「データの永続化（Turso）」を参照してください。  
+> `TURSO_*` を設定しない場合は、プロジェクトルートに `data.db`（`DB_PATH` で変更可）が
+> 自動生成され、ローカル開発に使われます。
 
 ## 管理者ログイン
 

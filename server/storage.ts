@@ -9,14 +9,24 @@ import {
   members,
   payments,
 } from "@shared/schema";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-const sqlite = new Database(process.env.DB_PATH ?? "data.db");
-sqlite.pragma("journal_mode = WAL");
+// Connection target:
+//  - Production (Render): a Turso/libSQL database via TURSO_DATABASE_URL
+//    (e.g. "libsql://<name>.turso.io") + TURSO_AUTH_TOKEN. This persists data
+//    across container restarts/redeploys/sleep, which a local SQLite file on
+//    Render's free tier does NOT (the filesystem is ephemeral).
+//  - Local dev: when the Turso vars are unset, fall back to a local file DB so
+//    the app runs without a Turso account.
+const url =
+  process.env.TURSO_DATABASE_URL ?? `file:${process.env.DB_PATH ?? "data.db"}`;
+const authToken = process.env.TURSO_AUTH_TOKEN;
 
-export const db = drizzle(sqlite);
+const client = createClient({ url, authToken });
+
+export const db = drizzle(client);
 
 export interface IStorage {
   // Events
@@ -63,20 +73,20 @@ export class DatabaseStorage implements IStorage {
   async deleteEvent(id: number): Promise<void> {
     // Cascade delete payments and members before the event, atomically so a
     // crash mid-delete cannot leave orphaned rows.
-    db.transaction((tx) => {
-      tx.delete(payments).where(eq(payments.eventId, id)).run();
-      tx.delete(members).where(eq(members.eventId, id)).run();
-      tx.delete(events).where(eq(events.id, id)).run();
+    await db.transaction(async (tx) => {
+      await tx.delete(payments).where(eq(payments.eventId, id)).run();
+      await tx.delete(members).where(eq(members.eventId, id)).run();
+      await tx.delete(events).where(eq(events.id, id)).run();
     });
   }
 
   async settleEvent(id: number): Promise<Event | undefined> {
-    db.update(events).set({ isSettled: true }).where(eq(events.id, id)).run();
+    await db.update(events).set({ isSettled: true }).where(eq(events.id, id)).run();
     return db.select().from(events).where(eq(events.id, id)).get();
   }
 
   async updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined> {
-    db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
+    await db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
     return db.select().from(events).where(eq(events.id, id)).get();
   }
 
@@ -94,7 +104,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteMember(id: number): Promise<void> {
-    db.delete(members).where(eq(members.id, id)).run();
+    await db.delete(members).where(eq(members.id, id)).run();
   }
 
   // Payments
@@ -111,12 +121,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined> {
-    db.update(payments).set(fields).where(eq(payments.id, id)).run();
+    await db.update(payments).set(fields).where(eq(payments.id, id)).run();
     return db.select().from(payments).where(eq(payments.id, id)).get();
   }
 
   async deletePayment(id: number): Promise<void> {
-    db.delete(payments).where(eq(payments.id, id)).run();
+    await db.delete(payments).where(eq(payments.id, id)).run();
   }
 }
 
