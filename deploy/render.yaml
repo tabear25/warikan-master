@@ -1,14 +1,16 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 # Deploy this file from the Render dashboard via "New +" → "Blueprint".
 #
-# This is the FREE-PLAN configuration: no persistent disk (Render's free tier
-# does not support disks). SQLite lives on the container's local filesystem,
-# which means data is RESET on every redeploy / restart / wake-from-sleep.
+# FREE-PLAN configuration with PERSISTENT data via Turso (libSQL), a free
+# cloud SQLite database. Because data lives outside the container, it is NOT
+# lost on redeploy / restart / wake-from-sleep (unlike a local SQLite file,
+# which Render's free tier wipes — the filesystem is ephemeral and free-tier
+# disks are unsupported).
 #
-# To keep data across restarts:
-#   1. Change `plan: free` to `plan: starter` (paid, ~$7/mo).
-#   2. Add the disk block (see deploy/README.md "永続化したい場合" section).
-#   3. Set DB_PATH to /data/data.db.
+# Required setup (see deploy/README.md "データの永続化（Turso）" section):
+#   1. Create a free database at https://turso.tech and get its URL + token.
+#   2. In the Render dashboard, set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN
+#      (they are sync:false below, so they are entered there, not committed).
 
 services:
   - type: web
@@ -23,10 +25,14 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DB_PATH
-        value: /app/data/data.db
       - key: PORT
         value: 10000
+      # Turso/libSQL connection. sync: false → entered in the Render dashboard,
+      # never committed. Without these the server cannot reach its database.
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
       # 管理者認証情報。sync: false により値はリポジトリに含めず、
       # Render dashboard で個別に入力する（ADMIN_PASSWORD は平文・8文字以上）。
       - key: ADMIN_USERNAME
