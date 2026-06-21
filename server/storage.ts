@@ -13,6 +13,13 @@ import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
+// Treat empty/whitespace-only env vars as unset (a blank value in the Render
+// dashboard or `sync: false` should not count as "configured").
+const cleanEnv = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 // Connection target:
 //  - Production (Render): a Turso/libSQL database via TURSO_DATABASE_URL
 //    (e.g. "libsql://<name>.turso.io") + TURSO_AUTH_TOKEN. This persists data
@@ -20,9 +27,27 @@ import { eq } from "drizzle-orm";
 //    Render's free tier does NOT (the filesystem is ephemeral).
 //  - Local dev: when the Turso vars are unset, fall back to a local file DB so
 //    the app runs without a Turso account.
-const url =
-  process.env.TURSO_DATABASE_URL ?? `file:${process.env.DB_PATH ?? "data.db"}`;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+const tursoUrl = cleanEnv(process.env.TURSO_DATABASE_URL);
+const authToken = cleanEnv(process.env.TURSO_AUTH_TOKEN);
+
+// Fail fast in production rather than silently writing to an ephemeral local
+// file (which would "work" until the next restart and then lose all data) —
+// mirrors the startup fail-fast for admin credentials in server/auth.ts.
+if (!tursoUrl && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "TURSO_DATABASE_URL が未設定です。本番ではデータ永続化のため Turso への接続が必須です。" +
+      "Render の Environment タブで TURSO_DATABASE_URL（libsql://...）と TURSO_AUTH_TOKEN を設定してください（deploy/README.md 参照）。",
+  );
+}
+
+const url = tursoUrl ?? `file:${process.env.DB_PATH ?? "data.db"}`;
+
+// Log the connection target (never the auth token) so the live logs make it
+// obvious whether the app is on the persistent Turso DB or a local file.
+const safeTarget = url.startsWith("file:")
+  ? `ローカルファイル ${url.slice("file:".length)}`
+  : url.split("?")[0];
+console.log(`[storage] DB connection target: ${safeTarget}`);
 
 const client = createClient({ url, authToken });
 

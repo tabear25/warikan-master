@@ -1,5 +1,12 @@
 import { defineConfig } from "drizzle-kit";
 
+// Treat empty/whitespace-only env vars as unset, matching server/storage.ts so
+// `db:push` and the running server resolve the same connection target.
+const cleanEnv = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
@@ -8,8 +15,8 @@ export default defineConfig({
   dialect: "turso",
   dbCredentials: {
     url:
-      process.env.TURSO_DATABASE_URL ??
+      cleanEnv(process.env.TURSO_DATABASE_URL) ??
       `file:${process.env.DB_PATH ?? "./data.db"}`,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    authToken: cleanEnv(process.env.TURSO_AUTH_TOKEN),
   },
 });
