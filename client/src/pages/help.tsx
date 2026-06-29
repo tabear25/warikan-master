@@ -96,7 +96,7 @@ export default function Help() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Link href="/">
@@ -109,7 +109,7 @@ export default function Help() {
               </button>
             </Link>
             <WaricanLogo className="w-7 h-7 text-primary" />
-            <span className="font-bold text-sm text-foreground">ヘルプ</span>
+            <span className="font-bold text-sm text-foreground tracking-tight">ヘルプ</span>
           </div>
           <Button
             variant="ghost"
@@ -127,9 +127,11 @@ export default function Help() {
       <main className="flex-1 px-4 py-6">
         <div className="max-w-lg mx-auto space-y-4">
           <div className="text-center mb-2">
-            <HelpCircle className="w-10 h-10 text-primary mx-auto mb-3" />
-            <h1 className="text-lg font-bold text-foreground mb-1">よくある質問</h1>
-            <p className="text-sm text-muted-foreground">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/10 shadow-sm">
+              <HelpCircle className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-xl font-bold text-foreground mb-1 tracking-tight">よくある質問</h1>
+            <p className="text-sm text-muted-foreground leading-relaxed">
               はじめてご利用の方向けのトラブルシューティングです。
             </p>
           </div>

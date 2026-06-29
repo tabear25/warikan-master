@@ -69,11 +69,11 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <WaricanLogo className="w-8 h-8 text-primary" />
-            <span className="font-bold text-base text-foreground">Warikan Master</span>
+            <span className="font-bold text-base text-foreground tracking-tight">Warikan Master</span>
           </div>
           <div className="flex items-center gap-1">
             <Link href="/help">
@@ -104,9 +104,11 @@ export default function Home() {
         <div className="w-full max-w-lg space-y-4">
           {/* Hero */}
           <div className="text-center mb-8">
-            <WaricanLogo className="w-16 h-16 text-primary mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-foreground mb-2">割り勘マスター</h1>
-            <p className="text-sm text-muted-foreground">
+            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/10 shadow-sm">
+              <WaricanLogo className="w-12 h-12 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold text-foreground mb-2 tracking-tight">割り勘マスター</h1>
+            <p className="text-sm text-muted-foreground leading-relaxed">
               旅行・食事の割り勘をかんたんに。<br />
               合言葉でグループに参加しましょう。
             </p>

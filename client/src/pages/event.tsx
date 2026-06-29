@@ -629,7 +629,7 @@ export default function EventPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <Link href="/">
@@ -641,7 +641,7 @@ export default function EventPage() {
             {eventQuery.isLoading ? (
               <Skeleton className="h-4 w-24" />
             ) : (
-              <span className="font-bold text-sm text-foreground truncate max-w-[140px]">
+              <span className="font-bold text-sm text-foreground truncate max-w-[140px] tracking-tight">
                 {event?.name ?? "イベント"}
               </span>
             )}

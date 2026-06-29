@@ -111,7 +111,7 @@ export default function CreateEvent() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Link href="/">
@@ -120,7 +120,7 @@ export default function CreateEvent() {
               </button>
             </Link>
             <WaricanLogo className="w-7 h-7 text-primary" />
-            <span className="font-bold text-sm text-foreground">イベント作成</span>
+            <span className="font-bold text-sm text-foreground tracking-tight">イベント作成</span>
           </div>
           <Button
             variant="ghost"

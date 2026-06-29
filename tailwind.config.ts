@@ -87,6 +87,15 @@ export default {
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
+      boxShadow: {
+        xs: "0 1px 2px 0 rgb(16 24 40 / 0.05)",
+        sm: "0 1px 3px 0 rgb(16 24 40 / 0.09), 0 1px 2px -1px rgb(16 24 40 / 0.06)",
+        DEFAULT: "0 1px 3px 0 rgb(16 24 40 / 0.10), 0 1px 2px -1px rgb(16 24 40 / 0.06)",
+        md: "0 4px 8px -2px rgb(16 24 40 / 0.10), 0 2px 4px -2px rgb(16 24 40 / 0.06)",
+        lg: "0 12px 20px -4px rgb(16 24 40 / 0.10), 0 4px 8px -4px rgb(16 24 40 / 0.05)",
+        xl: "0 20px 28px -6px rgb(16 24 40 / 0.12), 0 8px 10px -6px rgb(16 24 40 / 0.06)",
+        "2xl": "0 24px 48px -12px rgb(16 24 40 / 0.20)",
+      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },
