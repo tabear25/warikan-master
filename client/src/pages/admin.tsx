@@ -259,7 +259,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Link href="/">
@@ -268,7 +268,7 @@ export default function AdminPage() {
               </button>
             </Link>
             <WaricanLogo className="w-7 h-7 text-primary" />
-            <span className="font-bold text-sm text-foreground">管理パネル</span>
+            <span className="font-bold text-sm text-foreground tracking-tight">管理パネル</span>
           </div>
           <div className="flex items-center gap-1">
             {adminCreds && (
@@ -301,8 +301,8 @@ export default function AdminPage() {
           <div className="flex flex-col items-center justify-center pt-8">
             <Card className="w-full max-w-sm">
               <CardHeader className="text-center pb-4">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                  <ShieldCheck className="h-6 w-6 text-primary" />
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/10 flex items-center justify-center mx-auto mb-3">
+                  <ShieldCheck className="h-7 w-7 text-primary" />
                 </div>
                 <CardTitle className="text-base">管理画面ログイン</CardTitle>
                 <CardDescription className="text-sm">
