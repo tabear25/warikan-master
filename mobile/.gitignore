@@ -16,5 +16,8 @@ web-build/
 *.log
 .expo-shared/
 
+# Local Android build toolchain (JDK / Android SDK) — large, machine-local
+.tooling/
+
 # macOS
 .DS_Store
