@@ -114,9 +114,6 @@ cp .env.example .env
 #  .env を編集: EXPO_PUBLIC_API_BASE=https://<service>.onrender.com
 ```
 
-> Android エミュレータから開発マシン上のローカルサーバー（`npm run dev`）に接続する場合は
-> `EXPO_PUBLIC_API_BASE=http://10.0.2.2:5000` を使います。
-
 ### 開発（Expo）
 
 ```bash
@@ -131,21 +128,6 @@ npm run typecheck         # TypeScript 型チェック
 
 この環境ではネイティブビルドは行いません。お手元の環境で以下のいずれかを実行します。
 
-```bash
-cd mobile
-
-# A) ローカルビルド（要 Android Studio / SDK）
-npx expo prebuild --platform android   # android/ プロジェクトを生成
-#  → Android Studio で開く、または ./android/gradlew assembleRelease
-
-# B) EAS Build（クラウドビルド、Expo アカウントが必要）
-npm install -g eas-cli
-eas build --platform android
-```
-
-> アプリアイコン / スプラッシュは未設定（Expo のデフォルト）です。`mobile/app.json` の
-> `android.package`（既定 `com.warikan.master`）やアイコンは配信前に調整してください。
-
 ### mobile/ の npm スクリプト
 
 | コマンド | 説明 |
@@ -153,9 +135,6 @@ eas build --platform android
 | `npm start` | Expo 開発サーバー起動 |
 | `npm run android` | Android エミュレータ/実機で起動 |
 | `npm run typecheck` | TypeScript 型チェック（`tsc --noEmit`） |
-
-> 配信前の残タスク（アイコン配置・署名 / EAS Build・ストア申請・iOS 対応など）は
-> [docs/mobile-todo.md](docs/mobile-todo.md) にまとめています。
 
 ## プロジェクト構成
 
@@ -221,14 +200,3 @@ warikan-master/
 | DELETE | `/api/events/:id/payments/:paymentId` | 支払い削除 |
 | GET | `/api/events/:id/settlement` | 精算結果計算 |
 | POST | `/api/events/:id/settle` | 精算確定 |
-
-### 管理者専用
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/api/admin/events` | 全イベント一覧 |
-| DELETE | `/api/admin/events/:id` | イベント削除 |
-
-## ライセンス
-
-MIT
