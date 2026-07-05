@@ -7,13 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
 import { Aurora } from "@/components/aurora";
 import { MemberAvatar } from "@/components/member-avatar";
+import { cn } from "@/lib/utils";
+import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL } from "@/lib/schedule";
 import { Plus, Trash2, ChevronRight } from "lucide-react";
-import type { Event, Member } from "@shared/schema";
-import { LIMITS } from "@shared/schema";
+import type { Event, EventType, Member } from "@shared/schema";
+import { EVENT_TYPES, LIMITS } from "@shared/schema";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
@@ -28,10 +31,20 @@ export default function CreateEvent() {
 
   const [eventName, setEventName] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [eventType, setEventType] = useState<EventType>("meal");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [memberNames, setMemberNames] = useState(["", ""]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; keyword: string; memberNames: string[] }) => {
+    mutationFn: async (data: {
+      name: string;
+      keyword: string;
+      memberNames: string[];
+      type: EventType;
+      startDate?: string;
+      endDate?: string;
+    }) => {
       const res = await apiRequest("POST", "/api/events", data);
       return res.json() as Promise<{ event: Event; members: Member[] }>;
     },
@@ -90,10 +103,23 @@ export default function CreateEvent() {
       });
       return;
     }
+    const isTrip = eventType === "trip";
+    if (isTrip && startDate && endDate && endDate < startDate) {
+      toast({
+        title: "日程が正しくありません",
+        description: "終了日は開始日以降にしてください",
+        variant: "destructive",
+      });
+      return;
+    }
     createMutation.mutate({
       name: eventName.trim(),
       keyword: keyword.trim(),
       memberNames: validNames,
+      type: eventType,
+      // 日程は旅行タイプのときだけ送る（任意入力）
+      startDate: isTrip && startDate ? startDate : undefined,
+      endDate: isTrip && endDate ? endDate : undefined,
     });
   };
 
@@ -153,6 +179,71 @@ export default function CreateEvent() {
                       メンバーはこの合言葉でイベントに参加します
                     </p>
                   </div>
+
+                  {/* イベントの種類（旅行のときだけスケジュール機能が有効になる） */}
+                  <div className="space-y-2">
+                    <Label className="text-sm">イベントの種類</Label>
+                    <RadioGroup
+                      value={eventType}
+                      onValueChange={(value) => setEventType(value as EventType)}
+                      className="grid grid-cols-3 gap-2"
+                    >
+                      {EVENT_TYPES.map((type) => {
+                        const Icon = EVENT_TYPE_ICON[type];
+                        return (
+                          <label
+                            key={type}
+                            htmlFor={`event-type-${type}`}
+                            className={cn(
+                              "flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border-2 p-2.5 text-xs font-semibold transition-all duration-200",
+                              eventType === type
+                                ? "border-primary bg-primary/10 text-primary shadow-xs"
+                                : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+                            )}
+                            data-testid={`event-type-${type}`}
+                          >
+                            <RadioGroupItem value={type} id={`event-type-${type}`} className="sr-only" />
+                            <Icon className="h-4 w-4" />
+                            {EVENT_TYPE_LABEL[type]}
+                          </label>
+                        );
+                      })}
+                    </RadioGroup>
+                    {eventType === "trip" && (
+                      <p className="text-xs text-muted-foreground">
+                        旅行では宿泊・移動などのスケジュールも管理できます
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 旅行の日程（任意） */}
+                  {eventType === "trip" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="trip-start" className="text-sm">開始日（任意）</Label>
+                        <Input
+                          id="trip-start"
+                          data-testid="input-trip-start"
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          disabled={createMutation.isPending}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="trip-end" className="text-sm">終了日（任意）</Label>
+                        <Input
+                          id="trip-end"
+                          data-testid="input-trip-end"
+                          type="date"
+                          value={endDate}
+                          min={startDate || undefined}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          disabled={createMutation.isPending}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

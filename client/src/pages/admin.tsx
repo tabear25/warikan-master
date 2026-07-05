@@ -34,7 +34,9 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import type { Event, Member } from "@shared/schema";
+import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL } from "@/lib/schedule";
+import type { Event, EventType, Member } from "@shared/schema";
+import { EVENT_TYPES } from "@shared/schema";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
@@ -62,6 +64,20 @@ function formatDate(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+// イベント種類のバッジ（旅行 / 食事 / その他）。未知の値は「その他」に落とす。
+function EventTypeBadge({ type }: { type: string }) {
+  const typeKey: EventType = (EVENT_TYPES as readonly string[]).includes(type)
+    ? (type as EventType)
+    : "other";
+  const Icon = EVENT_TYPE_ICON[typeKey];
+  return (
+    <Badge variant="outline" className="gap-1 text-xs">
+      <Icon className="h-3 w-3 text-primary" />
+      {EVENT_TYPE_LABEL[typeKey]}
+    </Badge>
+  );
 }
 
 function buildAdminHeaders(adminCreds: AdminCredentials, includeJson = false): HeadersInit {
@@ -383,6 +399,7 @@ export default function AdminPage() {
                             <div className="min-w-0 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="break-words text-base font-bold text-foreground">{event.name}</span>
+                                <EventTypeBadge type={event.type} />
                                 <Badge variant={event.isSettled ? "secondary" : "outline"} className="text-xs">
                                   {event.isSettled ? (
                                     <>

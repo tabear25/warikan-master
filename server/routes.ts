@@ -5,12 +5,20 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { verifyAdminCredentials } from "./auth";
 import { calculateSettlement } from "./settlement";
+import { fetchOgpMetadata, OgpFetchError } from "./ogp";
 import {
   LIMITS,
   createEventInputSchema,
+  updateEventInputSchema,
   paymentInputSchema,
+  scheduleItemInputSchema,
+  ogpRequestSchema,
   type PaymentInput,
   type InsertPayment,
+  type InsertEvent,
+  type InsertScheduleItem,
+  type ScheduleItem,
+  type ScheduleItemInput,
 } from "@shared/schema";
 
 const adminLoginSchema = z.object({
@@ -32,6 +40,16 @@ const adminLoginLimiter = rateLimit({
 const writeLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
+});
+
+// OGP 取得の濫用対策（要件 N-Sec-3: IP あたり 1 分 30 回）。外部サイトへの
+// フェッチを伴うため、一般の書き込み系より厳しめに制限する。
+const ogpLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
@@ -81,6 +99,41 @@ async function validatePaymentMembers(
   }
   if (input.splitMemberIds.some((memberId) => !memberIds.has(memberId))) {
     return "割り勘の対象はこのイベントのメンバーである必要があります";
+  }
+  return null;
+}
+
+// ScheduleItemInput を DB 行（InsertScheduleItem の一部）に変換する。
+// undefined は明示的に null へ落とす（PATCH でフィールドをクリアできるように）。
+function scheduleInputToFields(
+  input: ScheduleItemInput,
+): Omit<InsertScheduleItem, "eventId" | "createdAt" | "updatedAt" | "paymentId"> {
+  return {
+    category: input.category,
+    title: input.title,
+    url: input.url ?? null,
+    ogpTitle: input.ogpTitle ?? null,
+    ogpImage: input.ogpImage ?? null,
+    ogpDescription: input.ogpDescription ?? null,
+    startAt: input.startAt ?? null,
+    endAt: input.endAt ?? null,
+    address: input.address ?? null,
+    memo: input.memo ?? null,
+    metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    cost: input.cost ?? null,
+    payerId: input.payerId ?? null,
+  };
+}
+
+// スケジュール項目の支払者（任意）がイベントのメンバーかを検証する。
+async function validateSchedulePayer(
+  eventId: number,
+  payerId: number | undefined,
+): Promise<string | null> {
+  if (payerId === undefined) return null;
+  const eventMembers = await storage.getMembersByEvent(eventId);
+  if (!eventMembers.some((member) => member.id === payerId)) {
+    return "支払者はこのイベントのメンバーである必要があります";
   }
   return null;
 }
@@ -239,7 +292,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const { name, keyword, memberNames } = parsed.data;
+    const { name, keyword, memberNames, type, startDate, endDate } = parsed.data;
 
     // 同一イベント内の重複メンバー名を拒否する。
     const uniqueNames = new Set(memberNames);
@@ -255,6 +308,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const event = await storage.createEvent({
       name,
       keyword,
+      // type 未指定（旧クライアント含む）は従来どおりの 'other' として扱う。
+      type: type ?? "other",
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
       createdAt: new Date().toISOString(),
       isSettled: false,
     });
@@ -293,6 +350,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     return res.json(event);
+  });
+
+  // イベントのタイプ・期間を変更する（合言葉モデルに合わせて参加者は誰でも変更可）。
+  app.patch("/api/events/:id", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid event ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    if (event.isSettled) {
+      return res.status(400).json({ error: "精算済みのイベントは編集できません" });
+    }
+
+    const parsed = updateEventInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    const fields: Partial<Pick<InsertEvent, "type" | "startDate" | "endDate">> = {};
+    if (parsed.data.type !== undefined) fields.type = parsed.data.type;
+    if (parsed.data.startDate !== undefined) fields.startDate = parsed.data.startDate;
+    if (parsed.data.endDate !== undefined) fields.endDate = parsed.data.endDate;
+
+    if (Object.keys(fields).length === 0) {
+      return res.json(event);
+    }
+
+    const updated = await storage.updateEventMeta(id, fields);
+    return res.json(updated);
   });
 
   app.get("/api/events/:id/members", async (req, res) => {
@@ -362,6 +452,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: "This event is already settled" });
     }
 
+    // スケジュール項目からの変換（任意）: scheduleItemId が来たら検証して双方向リンクする。
+    let scheduleItem: ScheduleItem | null = null;
+    const rawScheduleItemId = (req.body as Record<string, unknown> | undefined)?.scheduleItemId;
+    if (rawScheduleItemId !== undefined && rawScheduleItemId !== null) {
+      const idParse = z.number().int().positive().safeParse(rawScheduleItemId);
+      if (!idParse.success) {
+        return res.status(400).json({ error: "scheduleItemId が不正です" });
+      }
+      const item = await storage.getScheduleItem(idParse.data);
+      if (!item || item.eventId !== id) {
+        return res.status(404).json({ error: "スケジュール項目が見つかりません" });
+      }
+      if (item.paymentId != null) {
+        return res.status(409).json({ error: "この項目はすでに割り勘に追加されています" });
+      }
+      scheduleItem = item;
+    }
+
     // 旧クライアント互換: splitMode 未指定なら equal を補う。
     const body = { splitMode: "equal", ...req.body };
     const parsed = paymentInputSchema.safeParse(body);
@@ -374,11 +482,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: memberError });
     }
 
-    const payment = await storage.createPayment({
+    const paymentFields = {
       eventId: id,
       ...paymentInputToFields(parsed.data),
       createdAt: new Date().toISOString(),
-    });
+    };
+
+    const payment = scheduleItem
+      ? await storage.createPaymentLinkedToScheduleItem(
+          { ...paymentFields, scheduleItemId: scheduleItem.id },
+          scheduleItem.id,
+        )
+      : await storage.createPayment(paymentFields);
 
     return res.status(201).json(payment);
   });
@@ -440,6 +555,139 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     await storage.deletePayment(paymentId);
     return res.json({ success: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // スケジュール（旅行の宿泊・移動・その他予約）
+  // 割り勘とは独立に動くサブ機能。精算済みイベントでも旅程の追記・編集は可能
+  // （ロックされるのは支払い側だけ。割り勘への変換は payments 側の精算チェックで弾かれる）。
+  // ---------------------------------------------------------------------------
+  app.get("/api/events/:id/schedule", async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid event ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const items = await storage.getScheduleItemsByEvent(id);
+    return res.json(items);
+  });
+
+  app.post("/api/events/:id/schedule", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid event ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const existingItems = await storage.getScheduleItemsByEvent(id);
+    if (existingItems.length >= LIMITS.maxScheduleItems) {
+      return res.status(400).json({ error: `スケジュールは${LIMITS.maxScheduleItems}件までです` });
+    }
+
+    const parsed = scheduleItemInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    if (payerError) {
+      return res.status(400).json({ error: payerError });
+    }
+
+    const now = new Date().toISOString();
+    const item = await storage.createScheduleItem({
+      eventId: id,
+      ...scheduleInputToFields(parsed.data),
+      paymentId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return res.status(201).json(item);
+  });
+
+  app.patch("/api/events/:id/schedule/:itemId", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    const itemId = parseInt(String(req.params.itemId), 10);
+    if (isNaN(id) || isNaN(itemId)) {
+      return res.status(400).json({ error: "Invalid ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const item = await storage.getScheduleItem(itemId);
+    if (!item || item.eventId !== id) {
+      return res.status(404).json({ error: "スケジュール項目が見つかりません" });
+    }
+
+    const parsed = scheduleItemInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    if (payerError) {
+      return res.status(400).json({ error: payerError });
+    }
+
+    const updated = await storage.updateScheduleItem(itemId, {
+      ...scheduleInputToFields(parsed.data),
+      updatedAt: new Date().toISOString(),
+    });
+
+    return res.json(updated);
+  });
+
+  app.delete("/api/events/:id/schedule/:itemId", async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    const itemId = parseInt(String(req.params.itemId), 10);
+    if (isNaN(id) || isNaN(itemId)) {
+      return res.status(400).json({ error: "Invalid ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const item = await storage.getScheduleItem(itemId);
+    if (!item || item.eventId !== id) {
+      return res.status(404).json({ error: "スケジュール項目が見つかりません" });
+    }
+
+    await storage.deleteScheduleItem(itemId);
+    return res.json({ success: true });
+  });
+
+  // URL の OGP メタデータを取得する（スケジュール項目のタイトル・画像の自動補完用）。
+  app.post("/api/ogp", ogpLimiter, async (req, res) => {
+    const parsed = ogpRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    try {
+      const result = await fetchOgpMetadata(parsed.data.url);
+      return res.json(result);
+    } catch (err) {
+      if (err instanceof OgpFetchError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      console.error("OGP fetch error:", err);
+      return res.status(502).json({ error: "OGP の取得に失敗しました" });
+    }
   });
 
   app.get("/api/events/:id/settlement", async (req, res) => {

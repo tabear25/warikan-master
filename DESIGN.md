@@ -157,6 +157,8 @@ font-feature-settings: "palt" 1;   /* プロポーショナル字詰めを全域
 | `WaricanLogo` / `LogoTile` | ¥ 分割モチーフのロゴ。タイルはグラデ + グロー + rounded-[28%] |
 | `MemberAvatar` | 名前ハッシュで 8 種のグラデーションから決定的に配色されるイニシャルアバター |
 | `Aurora` | `fixed inset-0 -z-10` のオーロラ光球（親に `relative isolate` が必要） |
+| `ScheduleTab` | 旅行イベントの旅程タイムライン。`DAY 01` マイクロラベル + 日付見出し、左レールは `bg-primary/10` のアイコンドット + `w-px bg-border` の縦線。カードはタップで詳細を展開 |
+| `ScheduleItemDialog` | 予定の追加・編集。カテゴリ 3 択は割り勘モードと同じラジオカード、URL 貼付で OGP を自動補完（取得中はスピナー、失敗しても入力は止めない） |
 
 ---
 

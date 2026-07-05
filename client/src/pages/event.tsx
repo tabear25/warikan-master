@@ -36,13 +36,16 @@ import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
 import { Aurora } from "@/components/aurora";
 import { MemberAvatar } from "@/components/member-avatar";
+import { ScheduleTab } from "@/components/schedule-tab";
 import { cn } from "@/lib/utils";
+import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL, formatShortDate } from "@/lib/schedule";
 import {
   PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
-  Scale, Coins, SplitSquareHorizontal, KeyRound,
+  Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays,
 } from "lucide-react";
-import type { Event, Member, Payment, SplitMode } from "@shared/schema";
+import type { Event, EventType, Member, Payment, SplitMode } from "@shared/schema";
+import { EVENT_TYPES } from "@shared/schema";
 import { splitYen } from "@shared/split";
 import { formatYen, formatSignedYen } from "@/lib/currency";
 import {
@@ -70,15 +73,25 @@ const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
 // ---------------------------------------------------------------------------
 // 支払いの追加 / 編集ダイアログ（割り勘モード対応）
 // ---------------------------------------------------------------------------
+
+// スケジュール項目 →「割り勘に追加」で開くときのプリフィル内容。
+interface PaymentPrefill {
+  amount?: number;
+  description?: string;
+  payerId?: number;
+  scheduleItemId: number;
+}
+
 interface PaymentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   eventId: number;
   members: Member[];
   payment?: Payment | null; // 指定時は編集モード
+  prefill?: PaymentPrefill | null; // スケジュールからの変換時に指定
 }
 
-function PaymentDialog({ open, onOpenChange, eventId, members, payment }: PaymentDialogProps) {
+function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill }: PaymentDialogProps) {
   const { toast } = useToast();
   const queryClientHook = useQueryClient();
   const isEdit = !!payment;
@@ -107,15 +120,15 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
       setAmounts(Object.fromEntries(splitIds.map((id) => [id, mode === "amount" ? String(detail[String(id)] ?? "") : ""])));
     } else {
       const allIds = members.map((m) => m.id);
-      setPayerId("");
-      setAmount("");
-      setDescription("");
+      setPayerId(prefill?.payerId != null ? String(prefill.payerId) : "");
+      setAmount(prefill?.amount != null ? String(Math.round(prefill.amount)) : "");
+      setDescription(prefill?.description ?? "");
       setSplitMode("equal");
       setSelectedIds(allIds);
       setWeights(Object.fromEntries(allIds.map((id) => [id, "1"])));
       setAmounts(Object.fromEntries(allIds.map((id) => [id, ""])));
     }
-  }, [open, payment, members]);
+  }, [open, payment, prefill, members]);
 
   const mutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -128,6 +141,10 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
     onSuccess: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
+      if (prefill) {
+        // 変換済みバッジ（paymentId リンク）を反映する
+        queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "schedule"] });
+      }
       toast({ title: isEdit ? "支払いを更新しました" : "支払いを追加しました" });
       onOpenChange(false);
     },
@@ -187,6 +204,8 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
       description: description.trim(),
       splitMemberIds: orderedSelected,
       splitMode,
+      // スケジュール項目からの変換時は双方向リンク用の ID を添える（新規追加時のみ）
+      ...(!isEdit && prefill ? { scheduleItemId: prefill.scheduleItemId } : {}),
     };
     if (splitMode === "ratio") {
       const w: Record<string, number> = {};
@@ -206,7 +225,9 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
       <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-base">{isEdit ? "支払いを編集" : "支払いを追加"}</DialogTitle>
-          <DialogDescription className="text-sm">誰が何をいくら払ったか記録します</DialogDescription>
+          <DialogDescription className="text-sm">
+            {!isEdit && prefill ? "スケジュールの項目を割り勘として記録します" : "誰が何をいくら払ったか記録します"}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           <div className="space-y-1.5">
@@ -479,6 +500,135 @@ function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChang
 }
 
 // ---------------------------------------------------------------------------
+// イベント設定ダイアログ（種類・旅行日程の変更）
+// ---------------------------------------------------------------------------
+function EventSettingsDialog({ open, onOpenChange, event }: { open: boolean; onOpenChange: (v: boolean) => void; event: Event }) {
+  const { toast } = useToast();
+  const queryClientHook = useQueryClient();
+  const [type, setType] = useState<EventType>("other");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setType((EVENT_TYPES as readonly string[]).includes(event.type) ? (event.type as EventType) : "other");
+    setStartDate(event.startDate ?? "");
+    setEndDate(event.endDate ?? "");
+  }, [open, event]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/events/${event.id}`, {
+        type,
+        // 日程は旅行タイプのときだけ保持し、それ以外はクリアする
+        startDate: type === "trip" && startDate ? startDate : null,
+        endDate: type === "trip" && endDate ? endDate : null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", event.id] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/admin/events"] });
+      toast({ title: "イベント設定を更新しました" });
+      onOpenChange(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (type === "trip" && startDate && endDate && endDate < startDate) {
+      toast({ title: "日程が正しくありません", description: "終了日は開始日以降にしてください", variant: "destructive" });
+      return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base">イベント設定</DialogTitle>
+          <DialogDescription className="text-sm">イベントの種類と日程を変更できます</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+          <div className="space-y-2">
+            <Label className="text-sm">イベントの種類</Label>
+            <RadioGroup
+              value={type}
+              onValueChange={(value) => setType(value as EventType)}
+              className="grid grid-cols-3 gap-2"
+            >
+              {EVENT_TYPES.map((value) => {
+                const Icon = EVENT_TYPE_ICON[value];
+                return (
+                  <label
+                    key={value}
+                    htmlFor={`settings-type-${value}`}
+                    className={cn(
+                      "flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border-2 p-2.5 text-xs font-semibold transition-all duration-200",
+                      type === value
+                        ? "border-primary bg-primary/10 text-primary shadow-xs"
+                        : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+                    )}
+                    data-testid={`settings-type-${value}`}
+                  >
+                    <RadioGroupItem value={value} id={`settings-type-${value}`} className="sr-only" />
+                    <Icon className="h-4 w-4" />
+                    {EVENT_TYPE_LABEL[value]}
+                  </label>
+                );
+              })}
+            </RadioGroup>
+            <p className="text-xs text-muted-foreground">
+              「旅行」にするとスケジュールタブが使えます。種類を変えても登録済みの予定は消えません。
+            </p>
+          </div>
+
+          {type === "trip" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="settings-trip-start" className="text-sm">開始日（任意）</Label>
+                <Input
+                  id="settings-trip-start"
+                  data-testid="input-settings-trip-start"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="settings-trip-end" className="text-sm">終了日（任意）</Label>
+                <Input
+                  id="settings-trip-end"
+                  data-testid="input-settings-trip-end"
+                  type="date"
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            disabled={mutation.isPending}
+            data-testid="button-save-event-settings"
+          >
+            {mutation.isPending ? "保存中..." : "保存する"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 各自の収支バー
 // ---------------------------------------------------------------------------
 function BalanceBar({ name, balance, max }: { name: string; balance: number; max: number }) {
@@ -526,9 +676,12 @@ export default function EventPage() {
   const queryClientHook = useQueryClient();
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [paymentPrefill, setPaymentPrefill] = useState<PaymentPrefill | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("payments");
   const [settleConfirmOpen, setSettleConfirmOpen] = useState(false);
   const [keywordCopied, setKeywordCopied] = useState(false);
   const [exportingImage, setExportingImage] = useState(false);
@@ -565,6 +718,8 @@ export default function EventPage() {
     onSuccess: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
+      // スケジュール由来の支払いを消した場合、項目側の「追加済み」を解除表示する
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "schedule"] });
       toast({ title: "支払いを削除しました" });
     },
     onError: (err: Error) => {
@@ -587,6 +742,21 @@ export default function EventPage() {
   const memberList = membersQuery.data ?? [];
   const paymentList = paymentsQuery.data ?? [];
   const settlement = settlementQuery.data;
+
+  const isTrip = event?.type === "trip";
+  const eventTypeKey: EventType =
+    event && (EVENT_TYPES as readonly string[]).includes(event.type) ? (event.type as EventType) : "other";
+  const EventTypeIcon = EVENT_TYPE_ICON[eventTypeKey];
+  const tripRange = event?.startDate
+    ? `${formatShortDate(event.startDate)}${event.endDate ? ` – ${formatShortDate(event.endDate)}` : ""}`
+    : null;
+
+  // イベントの種類が旅行以外に変わったら、スケジュールタブから支払いタブへ退避する。
+  useEffect(() => {
+    if (activeTab === "schedule" && event && event.type !== "trip") {
+      setActiveTab("payments");
+    }
+  }, [activeTab, event]);
 
   const getMemberName = (memberId: number) => memberList.find((m) => m.id === memberId)?.name ?? "不明";
 
@@ -688,17 +858,33 @@ export default function EventPage() {
       />
 
       <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4">
-        {/* Keyword chip */}
+        {/* Keyword & event-type chips */}
         {event && (
-          <button
-            onClick={handleCopyKeyword}
-            className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 py-1 pl-3 pr-2.5 text-xs text-muted-foreground shadow-xs backdrop-blur-sm transition-colors duration-200 hover:text-foreground"
-            data-testid="button-copy-keyword"
-          >
-            <KeyRound className="h-3 w-3 text-primary" />
-            合言葉: <span className="font-display font-bold text-foreground">{event.keyword}</span>
-            {keywordCopied ? <Check className="h-3 w-3 text-positive" /> : <Copy className="h-3 w-3" />}
-          </button>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleCopyKeyword}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 py-1 pl-3 pr-2.5 text-xs text-muted-foreground shadow-xs backdrop-blur-sm transition-colors duration-200 hover:text-foreground"
+              data-testid="button-copy-keyword"
+            >
+              <KeyRound className="h-3 w-3 text-primary" />
+              合言葉: <span className="font-display font-bold text-foreground">{event.keyword}</span>
+              {keywordCopied ? <Check className="h-3 w-3 text-positive" /> : <Copy className="h-3 w-3" />}
+            </button>
+            <button
+              onClick={() => { if (!event.isSettled) setSettingsOpen(true); }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 text-xs text-muted-foreground shadow-xs backdrop-blur-sm transition-colors duration-200",
+                event.isSettled ? "cursor-default" : "hover:text-foreground",
+              )}
+              data-testid="button-event-settings"
+              aria-label="イベント設定"
+            >
+              <EventTypeIcon className="h-3 w-3 text-primary" />
+              <span className="font-medium text-foreground">{EVENT_TYPE_LABEL[eventTypeKey]}</span>
+              {isTrip && tripRange && <span>{tripRange}</span>}
+              {!event.isSettled && <Pencil className="h-3 w-3" />}
+            </button>
+          </div>
         )}
 
         {/* Members bar */}
@@ -727,15 +913,21 @@ export default function EventPage() {
           </div>
         )}
 
-        <Tabs defaultValue="payments" className="w-full">
-          <TabsList className="mb-4 grid w-full grid-cols-2">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className={cn("mb-4 grid w-full", isTrip ? "grid-cols-3" : "grid-cols-2")}>
             <TabsTrigger value="payments" data-testid="tab-payments">
               <Receipt className="mr-1.5 h-4 w-4" />
-              支払い一覧
+              {isTrip ? "支払い" : "支払い一覧"}
             </TabsTrigger>
+            {isTrip && (
+              <TabsTrigger value="schedule" data-testid="tab-schedule">
+                <CalendarDays className="mr-1.5 h-4 w-4" />
+                旅程
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settlement" data-testid="tab-settlement">
               <Wallet className="mr-1.5 h-4 w-4" />
-              精算結果
+              {isTrip ? "精算" : "精算結果"}
             </TabsTrigger>
           </TabsList>
 
@@ -805,6 +997,9 @@ export default function EventPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                               <p className="truncate text-sm font-semibold text-foreground">{p.description}</p>
+                              {p.scheduleItemId != null && (
+                                <CalendarDays className="h-3 w-3 shrink-0 text-primary" aria-label="スケジュール由来の支払い" />
+                              )}
                               {mode !== "equal" && (
                                 <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{SPLIT_MODE_LABEL[mode]}</Badge>
                               )}
@@ -882,6 +1077,28 @@ export default function EventPage() {
               )}
             </AlertDialog>
           </TabsContent>
+
+          {/* Schedule Tab（旅行タイプのみ） */}
+          {isTrip && event && (
+            <TabsContent value="schedule">
+              <ScheduleTab
+                eventId={eventId}
+                event={event}
+                members={memberList}
+                onConvert={(item) => {
+                  setPaymentPrefill({
+                    amount: item.cost != null ? Math.round(item.cost) : undefined,
+                    description: item.title,
+                    payerId: item.payerId ?? undefined,
+                    scheduleItemId: item.id,
+                  });
+                  setEditingPayment(null);
+                  setPaymentDialogOpen(true);
+                }}
+                onShowPayments={() => setActiveTab("payments")}
+              />
+            </TabsContent>
+          )}
 
           {/* Settlement Tab */}
           <TabsContent value="settlement">
@@ -1037,13 +1254,21 @@ export default function EventPage() {
       {/* Dialogs */}
       <PaymentDialog
         open={paymentDialogOpen}
-        onOpenChange={(v) => { setPaymentDialogOpen(v); if (!v) setEditingPayment(null); }}
+        onOpenChange={(v) => {
+          setPaymentDialogOpen(v);
+          if (!v) {
+            setEditingPayment(null);
+            setPaymentPrefill(null);
+          }
+        }}
         eventId={eventId}
         members={memberList}
         payment={editingPayment}
+        prefill={paymentPrefill}
       />
       <AddMemberDialog open={addMemberOpen} onOpenChange={setAddMemberOpen} eventId={eventId} />
       {event && <ShareDialog open={shareOpen} onOpenChange={setShareOpen} event={event} />}
+      {event && <EventSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} event={event} />}
 
       <AlertDialog open={settleConfirmOpen} onOpenChange={setSettleConfirmOpen}>
         <AlertDialogContent data-testid="dialog-settle-confirm">

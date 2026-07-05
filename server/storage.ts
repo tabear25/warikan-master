@@ -5,9 +5,12 @@ import {
   type InsertMember,
   type Payment,
   type InsertPayment,
+  type ScheduleItem,
+  type InsertScheduleItem,
   events,
   members,
   payments,
+  scheduleItems,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
@@ -62,6 +65,10 @@ export interface IStorage {
   deleteEvent(id: number): Promise<void>;
   settleEvent(id: number): Promise<Event | undefined>;
   updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined>;
+  updateEventMeta(
+    id: number,
+    fields: Partial<Pick<InsertEvent, "type" | "startDate" | "endDate">>,
+  ): Promise<Event | undefined>;
 
   // Members
   createMember(member: InsertMember): Promise<Member>;
@@ -75,6 +82,14 @@ export interface IStorage {
   getPayment(id: number): Promise<Payment | undefined>;
   updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<void>;
+  createPaymentLinkedToScheduleItem(payment: InsertPayment, scheduleItemId: number): Promise<Payment>;
+
+  // Schedule items
+  getScheduleItemsByEvent(eventId: number): Promise<ScheduleItem[]>;
+  getScheduleItem(id: number): Promise<ScheduleItem | undefined>;
+  createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem>;
+  updateScheduleItem(id: number, fields: Partial<InsertScheduleItem>): Promise<ScheduleItem | undefined>;
+  deleteScheduleItem(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -96,9 +111,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEvent(id: number): Promise<void> {
-    // Cascade delete payments and members before the event, atomically so a
-    // crash mid-delete cannot leave orphaned rows.
+    // Cascade delete schedule items, payments and members before the event,
+    // atomically so a crash mid-delete cannot leave orphaned rows.
     await db.transaction(async (tx) => {
+      await tx.delete(scheduleItems).where(eq(scheduleItems.eventId, id)).run();
       await tx.delete(payments).where(eq(payments.eventId, id)).run();
       await tx.delete(members).where(eq(members.eventId, id)).run();
       await tx.delete(events).where(eq(events.id, id)).run();
@@ -112,6 +128,14 @@ export class DatabaseStorage implements IStorage {
 
   async updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined> {
     await db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
+    return db.select().from(events).where(eq(events.id, id)).get();
+  }
+
+  async updateEventMeta(
+    id: number,
+    fields: Partial<Pick<InsertEvent, "type" | "startDate" | "endDate">>,
+  ): Promise<Event | undefined> {
+    await db.update(events).set(fields).where(eq(events.id, id)).run();
     return db.select().from(events).where(eq(events.id, id)).get();
   }
 
@@ -151,7 +175,75 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePayment(id: number): Promise<void> {
-    await db.delete(payments).where(eq(payments.id, id)).run();
+    // スケジュール項目からの変換リンクを外してから削除する（項目は残り、再変換できる）。
+    await db.transaction(async (tx) => {
+      await tx
+        .update(scheduleItems)
+        .set({ paymentId: null })
+        .where(eq(scheduleItems.paymentId, id))
+        .run();
+      await tx.delete(payments).where(eq(payments.id, id)).run();
+    });
+  }
+
+  async createPaymentLinkedToScheduleItem(
+    payment: InsertPayment,
+    scheduleItemId: number,
+  ): Promise<Payment> {
+    // 支払いの作成とスケジュール項目への逆リンクを原子的に行う。
+    return db.transaction(async (tx) => {
+      const created = await tx.insert(payments).values(payment).returning().get();
+      await tx
+        .update(scheduleItems)
+        .set({ paymentId: created.id, updatedAt: new Date().toISOString() })
+        .where(eq(scheduleItems.id, scheduleItemId))
+        .run();
+      return created;
+    });
+  }
+
+  // Schedule items
+  async getScheduleItemsByEvent(eventId: number): Promise<ScheduleItem[]> {
+    const items = await db
+      .select()
+      .from(scheduleItems)
+      .where(eq(scheduleItems.eventId, eventId))
+      .all();
+    // 開始日時のあるものを時系列順に、日時未定のものは作成順で末尾に並べる。
+    return items.sort((a, b) => {
+      if (a.startAt && b.startAt && a.startAt !== b.startAt) return a.startAt.localeCompare(b.startAt);
+      if (a.startAt && !b.startAt) return -1;
+      if (!a.startAt && b.startAt) return 1;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+  }
+
+  async getScheduleItem(id: number): Promise<ScheduleItem | undefined> {
+    return db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
+  }
+
+  async createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem> {
+    return db.insert(scheduleItems).values(item).returning().get();
+  }
+
+  async updateScheduleItem(
+    id: number,
+    fields: Partial<InsertScheduleItem>,
+  ): Promise<ScheduleItem | undefined> {
+    await db.update(scheduleItems).set(fields).where(eq(scheduleItems.id, id)).run();
+    return db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
+  }
+
+  async deleteScheduleItem(id: number): Promise<void> {
+    // 変換済み支払い側の由来リンクを外してから削除する（支払い自体は消さない）。
+    await db.transaction(async (tx) => {
+      await tx
+        .update(payments)
+        .set({ scheduleItemId: null })
+        .where(eq(payments.scheduleItemId, id))
+        .run();
+      await tx.delete(scheduleItems).where(eq(scheduleItems.id, id)).run();
+    });
   }
 }
 
