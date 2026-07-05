@@ -2,62 +2,103 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+   Warikan Master Design System — "SEISAN"
+   Electric emerald × 和モダン・フィンテック
+   - 色はセマンティックトークン（HSLトリプレット）で定義し、Tailwind から
+     `hsl(var(--token) / <alpha-value>)` で参照する
+   - 金額の増減は primary/destructive ではなく positive/negative を使う
+   =========================================================================== */
+
 /* LIGHT MODE */
 :root {
-  --button-outline: rgba(0, 0, 0, 0.1);
-  --badge-outline: rgba(0, 0, 0, 0.05);
+  --button-outline: rgba(9, 32, 24, 0.12);
+  --badge-outline: rgba(9, 32, 24, 0.06);
   --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(0, 0, 0, 0.03);
-  --elevate-2: rgba(0, 0, 0, 0.08);
-  /* Modern Japanese fintech palette — emerald brand on clean warm neutrals */
-  --background: 152 30% 98%;
-  --foreground: 158 24% 12%;
-  --border: 150 16% 90%;
+  --elevate-1: rgba(9, 32, 24, 0.035);
+  --elevate-2: rgba(9, 32, 24, 0.09);
+
+  /* Surfaces */
+  --background: 160 33% 98%;
+  --foreground: 168 32% 10%;
+  --border: 160 18% 89%;
+  --input: 160 16% 82%;
   --card: 0 0% 100%;
-  --card-foreground: 158 24% 12%;
-  --card-border: 150 16% 92%;
-  --sidebar: 150 22% 96%;
-  --sidebar-foreground: 158 24% 12%;
-  --sidebar-border: 150 16% 90%;
-  --sidebar-primary: 158 64% 35%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 152 32% 93%;
-  --sidebar-accent-foreground: 158 22% 16%;
-  --sidebar-ring: 158 64% 35%;
+  --card-foreground: 168 32% 10%;
+  --card-border: 160 20% 92%;
   --popover: 0 0% 100%;
-  --popover-foreground: 158 24% 12%;
-  --popover-border: 150 16% 90%;
-  --primary: 158 64% 35%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 150 22% 94%;
-  --secondary-foreground: 158 20% 22%;
-  --muted: 150 20% 95%;
-  --muted-foreground: 152 9% 42%;
-  --accent: 152 34% 93%;
-  --accent-foreground: 158 22% 16%;
-  --destructive: 0 72% 51%;
+  --popover-foreground: 168 32% 10%;
+  --popover-border: 160 18% 90%;
+
+  /* Brand */
+  --primary: 162 88% 27%;
+  --primary-foreground: 150 40% 98%;
+  --secondary: 158 28% 94%;
+  --secondary-foreground: 165 24% 20%;
+  --muted: 156 24% 94%;
+  --muted-foreground: 162 10% 40%;
+  --accent: 156 36% 92%;
+  --accent-foreground: 165 26% 16%;
+  --destructive: 4 74% 47%;
   --destructive-foreground: 0 0% 98%;
-  --input: 150 15% 84%;
-  --ring: 158 64% 35%;
-  --chart-1: 158 64% 38%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 140 45% 50%;
-  --chart-4: 43 74% 49%;
-  --chart-5: 27 87% 55%;
-  --font-sans: 'Plus Jakarta Sans', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+  --ring: 162 88% 30%;
+
+  /* Money semantics — 受け取り / 支払い */
+  --positive: 161 88% 29%;
+  --positive-foreground: 150 40% 98%;
+  --negative: 4 78% 46%;
+  --negative-foreground: 0 0% 98%;
+
+  /* Charts */
+  --chart-1: 161 84% 32%;
+  --chart-2: 173 70% 36%;
+  --chart-3: 188 74% 38%;
+  --chart-4: 40 92% 46%;
+  --chart-5: 16 84% 54%;
+
+  /* Sidebar (shadcn 互換) */
+  --sidebar: 158 26% 96%;
+  --sidebar-foreground: 168 32% 10%;
+  --sidebar-border: 160 18% 89%;
+  --sidebar-primary: 162 88% 27%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 156 36% 92%;
+  --sidebar-accent-foreground: 165 26% 16%;
+  --sidebar-ring: 162 88% 30%;
+
+  /* Typography */
+  --font-sans: 'Space Grotesk', 'Zen Kaku Gothic New', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+  --font-display: 'Space Grotesk', 'Zen Kaku Gothic New', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
   --font-serif: 'Noto Serif JP', Georgia, serif;
-  --font-mono: 'SFMono-Regular', Menlo, Consolas, monospace;
-  --radius: 0.75rem;
-  --shadow-2xs: 0 1px 2px 0 hsl(158 30% 14% / 0.04);
-  --shadow-xs: 0 1px 2px 0 hsl(158 30% 14% / 0.05);
-  --shadow-sm: 0 1px 3px 0 hsl(158 30% 14% / 0.08), 0 1px 2px -1px hsl(158 30% 14% / 0.05);
-  --shadow: 0 1px 3px 0 hsl(158 30% 14% / 0.09), 0 1px 2px -1px hsl(158 30% 14% / 0.06);
-  --shadow-md: 0 4px 8px -2px hsl(158 30% 14% / 0.10), 0 2px 4px -2px hsl(158 30% 14% / 0.06);
-  --shadow-lg: 0 12px 20px -4px hsl(158 30% 14% / 0.10), 0 4px 8px -4px hsl(158 30% 14% / 0.05);
-  --shadow-xl: 0 20px 28px -6px hsl(158 30% 14% / 0.12);
-  --shadow-2xl: 0 24px 48px -12px hsl(158 30% 14% / 0.18);
-  --tracking-normal: 0em;
+  --font-mono: 'Space Grotesk', 'SFMono-Regular', Menlo, Consolas, monospace;
+  --tracking-normal: 0.015em;
+
+  /* Shape */
+  --radius: 1rem;
   --spacing: 0.25rem;
+
+  /* Depth — 緑がかったアンビエントシャドウ */
+  --shadow-2xs: 0 1px 2px 0 hsl(166 40% 12% / 0.04);
+  --shadow-xs: 0 1px 2px 0 hsl(166 40% 12% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(166 40% 12% / 0.07), 0 1px 2px -1px hsl(166 40% 12% / 0.05);
+  --shadow: 0 2px 4px -1px hsl(166 40% 12% / 0.08), 0 1px 2px -1px hsl(166 40% 12% / 0.05);
+  --shadow-md: 0 6px 12px -3px hsl(166 40% 12% / 0.09), 0 2px 5px -2px hsl(166 40% 12% / 0.06);
+  --shadow-lg: 0 14px 28px -6px hsl(166 40% 12% / 0.11), 0 4px 10px -4px hsl(166 40% 12% / 0.06);
+  --shadow-xl: 0 24px 40px -10px hsl(166 40% 12% / 0.14), 0 8px 16px -8px hsl(166 40% 12% / 0.07);
+  --shadow-2xl: 0 32px 64px -16px hsl(166 40% 12% / 0.22);
+  --shadow-glow: 0 8px 28px -8px hsl(161 84% 34% / 0.45), 0 2px 8px -2px hsl(161 84% 30% / 0.3);
+  --shadow-glow-lg: 0 16px 48px -12px hsl(161 84% 34% / 0.55), 0 4px 14px -4px hsl(161 84% 30% / 0.35);
+
+  /* Brand gradients */
+  --gradient-brand: linear-gradient(135deg, hsl(166 92% 24%) 0%, hsl(160 84% 33%) 55%, hsl(174 78% 37%) 100%);
+  --gradient-brand-soft: linear-gradient(135deg, hsl(160 60% 95%) 0%, hsl(172 55% 94%) 100%);
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 450ms;
 
   /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -102,54 +143,70 @@
   );
 }
 
+/* DARK MODE — ミント on 墨黒。ブランドカラーが発光する反転型 */
 .dark {
-  --button-outline: rgba(255, 255, 255, 0.1);
-  --badge-outline: rgba(255, 255, 255, 0.05);
+  --button-outline: rgba(235, 255, 246, 0.12);
+  --badge-outline: rgba(235, 255, 246, 0.06);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255, 255, 255, 0.04);
-  --elevate-2: rgba(255, 255, 255, 0.09);
-  --background: 156 24% 7%;
-  --foreground: 150 12% 93%;
-  --border: 156 12% 17%;
-  --card: 156 20% 10%;
-  --card-foreground: 150 12% 93%;
-  --card-border: 156 14% 16%;
-  --sidebar: 156 20% 9%;
-  --sidebar-foreground: 150 12% 93%;
-  --sidebar-border: 156 12% 16%;
-  --sidebar-primary: 156 56% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 156 14% 16%;
-  --sidebar-accent-foreground: 150 12% 93%;
-  --sidebar-ring: 156 56% 50%;
-  --popover: 156 20% 11%;
-  --popover-foreground: 150 12% 93%;
-  --popover-border: 156 12% 18%;
-  --primary: 156 56% 50%;
-  --primary-foreground: 156 40% 8%;
-  --secondary: 156 14% 18%;
-  --secondary-foreground: 150 10% 90%;
-  --muted: 156 12% 18%;
-  --muted-foreground: 150 8% 62%;
-  --accent: 156 14% 17%;
-  --accent-foreground: 150 12% 93%;
-  --destructive: 0 72% 55%;
+  --elevate-1: rgba(235, 255, 246, 0.045);
+  --elevate-2: rgba(235, 255, 246, 0.1);
+
+  --background: 172 36% 5%;
+  --foreground: 152 20% 93%;
+  --border: 166 14% 15%;
+  --input: 164 12% 24%;
+  --card: 168 26% 8%;
+  --card-foreground: 152 20% 93%;
+  --card-border: 166 16% 13%;
+  --popover: 168 24% 9%;
+  --popover-foreground: 152 20% 93%;
+  --popover-border: 166 16% 16%;
+
+  --primary: 157 68% 52%;
+  --primary-foreground: 172 50% 6%;
+  --secondary: 165 14% 14%;
+  --secondary-foreground: 152 14% 90%;
+  --muted: 164 12% 14%;
+  --muted-foreground: 158 9% 62%;
+  --accent: 163 16% 15%;
+  --accent-foreground: 152 16% 92%;
+  --destructive: 3 74% 55%;
   --destructive-foreground: 0 0% 98%;
-  --input: 156 10% 26%;
-  --ring: 156 56% 50%;
-  --chart-1: 156 56% 55%;
-  --chart-2: 173 58% 55%;
-  --chart-3: 140 45% 60%;
-  --chart-4: 43 74% 65%;
-  --chart-5: 27 87% 65%;
-  --shadow-2xs: 0 1px 2px 0 hsl(0 0% 0% / 0.20);
-  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.24);
-  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.30), 0 1px 2px -1px hsl(0 0% 0% / 0.24);
-  --shadow: 0 1px 3px 0 hsl(0 0% 0% / 0.32), 0 1px 2px -1px hsl(0 0% 0% / 0.26);
-  --shadow-md: 0 4px 8px -2px hsl(0 0% 0% / 0.36), 0 2px 4px -2px hsl(0 0% 0% / 0.28);
-  --shadow-lg: 0 12px 20px -4px hsl(0 0% 0% / 0.40), 0 4px 8px -4px hsl(0 0% 0% / 0.30);
-  --shadow-xl: 0 20px 28px -6px hsl(0 0% 0% / 0.46);
-  --shadow-2xl: 0 24px 48px -12px hsl(0 0% 0% / 0.55);
+  --ring: 157 68% 52%;
+
+  --positive: 157 68% 52%;
+  --positive-foreground: 172 50% 6%;
+  --negative: 4 92% 68%;
+  --negative-foreground: 8 60% 8%;
+
+  --chart-1: 157 68% 55%;
+  --chart-2: 173 64% 52%;
+  --chart-3: 188 70% 54%;
+  --chart-4: 42 90% 62%;
+  --chart-5: 16 88% 64%;
+
+  --sidebar: 170 28% 6%;
+  --sidebar-foreground: 152 20% 93%;
+  --sidebar-border: 166 14% 14%;
+  --sidebar-primary: 157 68% 52%;
+  --sidebar-primary-foreground: 172 50% 6%;
+  --sidebar-accent: 163 16% 15%;
+  --sidebar-accent-foreground: 152 16% 92%;
+  --sidebar-ring: 157 68% 52%;
+
+  --shadow-2xs: 0 1px 2px 0 hsl(0 0% 0% / 0.25);
+  --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.35), 0 1px 2px -1px hsl(0 0% 0% / 0.28);
+  --shadow: 0 2px 4px -1px hsl(0 0% 0% / 0.38), 0 1px 2px -1px hsl(0 0% 0% / 0.3);
+  --shadow-md: 0 6px 12px -3px hsl(0 0% 0% / 0.42), 0 2px 5px -2px hsl(0 0% 0% / 0.32);
+  --shadow-lg: 0 14px 28px -6px hsl(0 0% 0% / 0.46), 0 4px 10px -4px hsl(0 0% 0% / 0.34);
+  --shadow-xl: 0 24px 40px -10px hsl(0 0% 0% / 0.52);
+  --shadow-2xl: 0 32px 64px -16px hsl(0 0% 0% / 0.6);
+  --shadow-glow: 0 8px 28px -8px hsl(157 70% 45% / 0.4), 0 2px 8px -2px hsl(157 70% 45% / 0.28);
+  --shadow-glow-lg: 0 16px 48px -12px hsl(157 70% 48% / 0.5), 0 4px 14px -4px hsl(157 70% 48% / 0.32);
+
+  --gradient-brand: linear-gradient(135deg, hsl(160 80% 40%) 0%, hsl(165 72% 48%) 55%, hsl(178 68% 50%) 100%);
+  --gradient-brand-soft: linear-gradient(135deg, hsl(165 30% 11%) 0%, hsl(175 26% 10%) 100%);
 
   /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -201,13 +258,14 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
-    /* 日本語タイポグラフィ最適化 */
-    line-height: 1.7;
-    letter-spacing: 0.02em;
+    /* 日本語タイポグラフィ最適化 — palt 全域適用、広めの行間で信頼感を出す */
+    line-height: 1.75;
+    letter-spacing: var(--tracking-normal);
     font-feature-settings: "palt" 1;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -218,14 +276,47 @@
 
   /* 見出し・UIラベルは行間を詰め、字詰めを効かせて引き締める */
   h1, h2, h3, h4, h5, h6 {
-    line-height: 1.4;
-    letter-spacing: 0.012em;
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+    font-weight: 700;
   }
 
-  /* 数値（金額など）は字詰めを切り、等幅で読みやすく */
+  /* 数値（金額など）は字詰めを切り、等幅数字で桁を揃える */
   .tabular-nums {
     font-feature-settings: "palt" 0, "tnum" 1;
     letter-spacing: 0;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.22);
+  }
+
+  /* 細身のスクロールバー */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
@@ -234,10 +325,44 @@
     @apply hidden;
   }
 
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));
     pointer-events: none;
+  }
+
+  /* ガラス面 — ヘッダーやフローティング要素に使う */
+  .glass {
+    background-color: hsl(var(--background) / 0.72);
+    backdrop-filter: blur(16px) saturate(1.5);
+    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  }
+
+  /* ブランドグラデーション */
+  .bg-gradient-brand {
+    background-image: var(--gradient-brand);
+  }
+  .bg-gradient-brand-soft {
+    background-image: var(--gradient-brand-soft);
+  }
+  .text-gradient-brand {
+    background-image: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* 金額表示 — ディスプレイ書体 + タブラー数字 */
+  .money {
+    font-family: var(--font-display);
+    font-feature-settings: "palt" 0, "tnum" 1;
+    letter-spacing: -0.01em;
   }
 
   .no-default-hover-elevate {

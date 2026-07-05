@@ -109,7 +109,8 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      // reusePort は Windows では未サポートで ENOTSUP になるため、Windows 以外でのみ有効化する
+      reusePort: process.platform !== "win32",
     },
     () => {
       log(`serving on port ${port}`);
