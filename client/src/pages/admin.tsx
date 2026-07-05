@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,20 +21,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { AppHeader } from "@/components/app-header";
+import { Aurora } from "@/components/aurora";
+import { MemberAvatar } from "@/components/member-avatar";
 import {
-  ArrowLeft,
   Calendar,
   CheckCircle2,
   Key,
   LogOut,
-  Moon,
   Plus,
   ShieldCheck,
-  Sun,
   Trash2,
   Users,
 } from "lucide-react";
 import type { Event, Member } from "@shared/schema";
+
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+
+const fadeUp = {
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+};
 
 interface AdminCredentials {
   username: string;
@@ -43,20 +50,6 @@ interface AdminCredentials {
 
 interface AdminEvent extends Event {
   members: Member[];
-}
-
-function WaricanLogo({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" aria-label="Warikan Master" className={className} xmlns="http://www.w3.org/2000/svg">
-      <circle cx="24" cy="24" r="22" stroke="currentColor" strokeWidth="2" />
-      <path d="M14 10 L24 24 L34 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M24 24 L24 38" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M18 28 L30 28" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M18 33 L30 33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="16" cy="12" r="2" fill="currentColor" opacity="0.5" />
-      <circle cx="32" cy="12" r="2" fill="currentColor" opacity="0.5" />
-    </svg>
-  );
 }
 
 function formatDate(dateStr: string): string {
@@ -97,7 +90,6 @@ async function readErrorMessage(res: Response): Promise<string> {
 export default function AdminPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
   const queryClient = useQueryClient();
 
   const [adminCreds, setAdminCreds] = useState<AdminCredentials | null>(null);
@@ -258,316 +250,317 @@ export default function AdminPage() {
   const eventList = eventsQuery.data ?? [];
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Link href="/">
-              <button className="p-1 rounded-md hover:bg-accent transition-colors" data-testid="button-back">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            </Link>
-            <WaricanLogo className="w-7 h-7 text-primary" />
-            <span className="font-bold text-sm text-foreground tracking-tight">管理パネル</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {adminCreds && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                data-testid="button-logout"
-                className="text-muted-foreground text-xs h-8 px-2"
-              >
-                <LogOut className="h-3.5 w-3.5 mr-1" />
-                ログアウト
-              </Button>
-            )}
+    <div className="relative isolate flex min-h-screen flex-col bg-background">
+      <Aurora />
+
+      <AppHeader
+        backHref="/"
+        width="3xl"
+        title={<span className="text-sm font-bold tracking-tight text-foreground">管理パネル</span>}
+        actions={
+          adminCreds ? (
             <Button
               variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              data-testid="button-toggle-theme"
-              aria-label="テーマ切り替え"
+              size="sm"
+              onClick={handleLogout}
+              data-testid="button-logout"
+              className="h-8 px-2.5 text-xs text-muted-foreground"
             >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              <LogOut className="h-3.5 w-3.5" />
+              ログアウト
             </Button>
-          </div>
-        </div>
-      </header>
+          ) : undefined
+        }
+      />
 
-      <main className="flex-1 px-4 py-6 max-w-3xl mx-auto w-full">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         {!adminCreds ? (
           <div className="flex flex-col items-center justify-center pt-8">
-            <Card className="w-full max-w-sm">
-              <CardHeader className="text-center pb-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/10 flex items-center justify-center mx-auto mb-3">
-                  <ShieldCheck className="h-7 w-7 text-primary" />
-                </div>
-                <CardTitle className="text-base">管理画面ログイン</CardTitle>
-                <CardDescription className="text-sm">
-                  管理者アカウントでログインしてください
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="admin-username" className="text-sm">ユーザーID</Label>
-                    <Input
-                      id="admin-username"
-                      data-testid="input-admin-username"
-                      placeholder="admin"
-                      value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      disabled={loginMutation.isPending}
-                      autoComplete="username"
-                    />
+            <motion.div className="w-full max-w-sm" {...fadeUp} transition={{ duration: 0.5, ease: EASE }}>
+              <Card className="rounded-3xl shadow-lg">
+                <CardHeader className="pb-4 text-center">
+                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand text-primary-foreground shadow-glow">
+                    <ShieldCheck className="h-7 w-7" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="admin-password" className="text-sm">パスワード</Label>
-                    <Input
-                      id="admin-password"
-                      data-testid="input-admin-password"
-                      type="password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      disabled={loginMutation.isPending}
-                      autoComplete="current-password"
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={loginMutation.isPending || !username.trim() || !password.trim()}
-                    data-testid="button-admin-login"
-                  >
-                    {loginMutation.isPending ? "ログイン中..." : "ログイン"}
-                  </Button>
-                </form>
-                <p className="text-xs text-muted-foreground text-center mt-4">
-                  初期設定: admin / admin
-                </p>
-              </CardContent>
-            </Card>
+                  <CardTitle className="text-base">管理画面ログイン</CardTitle>
+                  <CardDescription className="text-sm">
+                    管理者アカウントでログインしてください
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="admin-username" className="text-sm">ユーザーID</Label>
+                      <Input
+                        id="admin-username"
+                        data-testid="input-admin-username"
+                        placeholder="admin"
+                        value={username}
+                        onChange={(event) => setUsername(event.target.value)}
+                        disabled={loginMutation.isPending}
+                        autoComplete="username"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="admin-password" className="text-sm">パスワード</Label>
+                      <Input
+                        id="admin-password"
+                        data-testid="input-admin-password"
+                        type="password"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        disabled={loginMutation.isPending}
+                        autoComplete="current-password"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="w-full"
+                      disabled={loginMutation.isPending || !username.trim() || !password.trim()}
+                      data-testid="button-admin-login"
+                    >
+                      {loginMutation.isPending ? "ログイン中..." : "ログイン"}
+                    </Button>
+                  </form>
+                  <p className="mt-4 text-center text-xs text-muted-foreground">
+                    初期設定: admin / admin
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <ShieldCheck className="h-4 w-4 text-primary" />
+            <motion.div
+              className="flex items-center gap-2 text-sm text-muted-foreground"
+              {...fadeUp}
+              transition={{ duration: 0.45, ease: EASE }}
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <ShieldCheck className="h-3.5 w-3.5" />
+              </span>
               <span>
                 <strong className="text-foreground">{adminCreds.username}</strong> としてログイン中
               </span>
-            </div>
+            </motion.div>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">イベント管理</CardTitle>
-                <CardDescription className="text-sm">
-                  {eventsQuery.isLoading ? "読み込み中..." : `${eventList.length}件のイベント`}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {eventsQuery.isLoading ? (
-                  <div className="space-y-4">
-                    {[1, 2, 3].map((item) => (
-                      <div key={item} className="space-y-3 rounded-lg border border-border p-4">
-                        <Skeleton className="h-5 w-48" />
-                        <Skeleton className="h-4 w-40" />
-                        <Skeleton className="h-10 w-full" />
-                      </div>
-                    ))}
-                  </div>
-                ) : eventList.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Calendar className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-                    <p className="text-sm text-muted-foreground">イベントがまだありません</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {eventList.map((event) => (
-                      <div
-                        key={event.id}
-                        className="rounded-lg border border-border p-4 space-y-4"
-                        data-testid={`admin-event-${event.id}`}
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="min-w-0 space-y-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-base text-foreground break-words">{event.name}</span>
-                              <Badge variant={event.isSettled ? "secondary" : "outline"} className="text-xs">
-                                {event.isSettled ? (
-                                  <>
-                                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                                    清算済み
-                                  </>
-                                ) : (
-                                  "未精算"
-                                )}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                              <span className="flex items-center gap-1">
-                                <Key className="h-3 w-3" />
-                                {event.keyword}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {formatDate(event.createdAt)}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Users className="h-3 w-3" />
-                                {event.members.length}人
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() => setLocation(`/event/${event.id}`)}
-                              data-testid={`button-view-event-${event.id}`}
-                            >
-                              詳細を見る
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() =>
-                                toggleSettlementMutation.mutate({
-                                  eventId: event.id,
-                                  isSettled: !event.isSettled,
-                                })
-                              }
-                              disabled={toggleSettlementMutation.isPending}
-                              data-testid={`button-toggle-settlement-${event.id}`}
-                            >
-                              {event.isSettled ? "未精算に戻す" : "清算済みにする"}
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                  data-testid={`button-delete-event-${event.id}`}
-                                  disabled={deleteEventMutation.isPending}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>イベントを削除しますか？</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    「{event.name}」に登録されている支払い情報も一緒に削除されます。この操作は元に戻せません。
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => deleteEventMutation.mutate(event.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    data-testid={`button-confirm-delete-event-${event.id}`}
-                                  >
-                                    削除する
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
+            <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
+              <Card className="rounded-3xl">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">イベント管理</CardTitle>
+                  <CardDescription className="text-sm">
+                    {eventsQuery.isLoading ? "読み込み中..." : `${eventList.length}件のイベント`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {eventsQuery.isLoading ? (
+                    <div className="space-y-4">
+                      {[1, 2, 3].map((item) => (
+                        <div key={item} className="space-y-3 rounded-2xl border border-border p-4">
+                          <Skeleton className="h-5 w-48" />
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-10 w-full" />
                         </div>
-
-                        <div className="space-y-3 border-t border-border pt-4">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-primary" />
-                            <h3 className="text-sm font-medium text-foreground">メンバー管理</h3>
-                          </div>
-
-                          <div className="space-y-2">
-                            {event.members.map((member) => (
-                              <div
-                                key={member.id}
-                                className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
-                                data-testid={`admin-member-${event.id}-${member.id}`}
-                              >
-                                <span className="text-sm text-foreground">{member.name}</span>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                      disabled={deleteMemberMutation.isPending}
-                                      data-testid={`button-delete-member-${event.id}-${member.id}`}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>メンバーを削除しますか？</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        まだ支払いに使われていないメンバーだけ削除できます。
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() =>
-                                          deleteMemberMutation.mutate({
-                                            eventId: event.id,
-                                            memberId: member.id,
-                                          })
-                                        }
-                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                        data-testid={`button-confirm-delete-member-${event.id}-${member.id}`}
-                                      >
-                                        削除する
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
+                      ))}
+                    </div>
+                  ) : eventList.length === 0 ? (
+                    <div className="py-10 text-center">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
+                        <Calendar className="h-6 w-6" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">イベントがまだありません</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {eventList.map((event) => (
+                        <div
+                          key={event.id}
+                          className="space-y-4 rounded-2xl border border-card-border bg-card p-4 shadow-xs sm:p-5"
+                          data-testid={`admin-event-${event.id}`}
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="break-words text-base font-bold text-foreground">{event.name}</span>
+                                <Badge variant={event.isSettled ? "secondary" : "outline"} className="text-xs">
+                                  {event.isSettled ? (
+                                    <>
+                                      <CheckCircle2 className="mr-1 h-3 w-3 text-positive" />
+                                      清算済み
+                                    </>
+                                  ) : (
+                                    "未精算"
+                                  )}
+                                </Badge>
                               </div>
-                            ))}
+                              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Key className="h-3 w-3" />
+                                  <span className="font-display font-semibold">{event.keyword}</span>
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {formatDate(event.createdAt)}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {event.members.length}人
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={() => setLocation(`/event/${event.id}`)}
+                                data-testid={`button-view-event-${event.id}`}
+                              >
+                                詳細を見る
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={() =>
+                                  toggleSettlementMutation.mutate({
+                                    eventId: event.id,
+                                    isSettled: !event.isSettled,
+                                  })
+                                }
+                                disabled={toggleSettlementMutation.isPending}
+                                data-testid={`button-toggle-settlement-${event.id}`}
+                              >
+                                {event.isSettled ? "未精算に戻す" : "清算済みにする"}
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
+                                    data-testid={`button-delete-event-${event.id}`}
+                                    disabled={deleteEventMutation.isPending}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>イベントを削除しますか？</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      「{event.name}」に登録されている支払い情報も一緒に削除されます。この操作は元に戻せません。
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => deleteEventMutation.mutate(event.id)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      data-testid={`button-confirm-delete-event-${event.id}`}
+                                    >
+                                      削除する
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           </div>
 
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <Input
-                              placeholder="追加するメンバー名"
-                              value={memberInputs[event.id] ?? ""}
-                              onChange={(inputEvent) =>
-                                setMemberInputs((prev) => ({
-                                  ...prev,
-                                  [event.id]: inputEvent.target.value,
-                                }))
-                              }
-                              data-testid={`input-member-name-${event.id}`}
-                            />
-                            <Button
-                              type="button"
-                              className="sm:w-auto"
-                              onClick={() => handleAddMember(event.id)}
-                              disabled={addMemberMutation.isPending}
-                              data-testid={`button-add-member-${event.id}`}
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              メンバー追加
-                            </Button>
-                          </div>
+                          <div className="space-y-3 border-t border-border pt-4">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-primary" />
+                              <h3 className="text-sm font-semibold text-foreground">メンバー管理</h3>
+                            </div>
 
-                          <p className="text-xs text-muted-foreground">
-                            支払い済みデータに含まれているメンバーは削除できません。必要なら先に支払い情報側を調整してください。
-                          </p>
+                            <div className="space-y-2">
+                              {event.members.map((member) => (
+                                <div
+                                  key={member.id}
+                                  className="flex items-center justify-between gap-3 rounded-xl bg-accent/50 py-1.5 pl-1.5 pr-2"
+                                  data-testid={`admin-member-${event.id}-${member.id}`}
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <MemberAvatar name={member.name} className="h-7 w-7 text-[10px]" />
+                                    <span className="truncate text-sm font-medium text-foreground">{member.name}</span>
+                                  </span>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
+                                        disabled={deleteMemberMutation.isPending}
+                                        data-testid={`button-delete-member-${event.id}-${member.id}`}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>メンバーを削除しますか？</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          まだ支払いに使われていないメンバーだけ削除できます。
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() =>
+                                            deleteMemberMutation.mutate({
+                                              eventId: event.id,
+                                              memberId: member.id,
+                                            })
+                                          }
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                          data-testid={`button-confirm-delete-member-${event.id}-${member.id}`}
+                                        >
+                                          削除する
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                              <Input
+                                placeholder="追加するメンバー名"
+                                value={memberInputs[event.id] ?? ""}
+                                onChange={(inputEvent) =>
+                                  setMemberInputs((prev) => ({
+                                    ...prev,
+                                    [event.id]: inputEvent.target.value,
+                                  }))
+                                }
+                                data-testid={`input-member-name-${event.id}`}
+                              />
+                              <Button
+                                type="button"
+                                className="sm:w-auto"
+                                onClick={() => handleAddMember(event.id)}
+                                disabled={addMemberMutation.isPending}
+                                data-testid={`button-add-member-${event.id}`}
+                              >
+                                <Plus className="h-4 w-4" />
+                                メンバー追加
+                              </Button>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground">
+                              支払い済みデータに含まれているメンバーは削除できません。必要なら先に支払い情報側を調整してください。
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
           </div>
         )}
       </main>

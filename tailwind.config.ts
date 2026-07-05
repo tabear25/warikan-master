@@ -6,9 +6,12 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        sm: "0.5rem", /* 8px */
+        md: "0.75rem", /* 12px */
+        lg: "1rem", /* 16px */
+        xl: "1.25rem", /* 20px */
+        "2xl": "1.5rem", /* 24px */
+        "3xl": "2rem", /* 32px */
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -51,6 +54,15 @@ export default {
           foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
           border: "var(--destructive-border)",
         },
+        // 金額の受け取り（+）と支払い（−）専用のセマンティックカラー
+        positive: {
+          DEFAULT: "hsl(var(--positive) / <alpha-value>)",
+          foreground: "hsl(var(--positive-foreground) / <alpha-value>)",
+        },
+        negative: {
+          DEFAULT: "hsl(var(--negative) / <alpha-value>)",
+          foreground: "hsl(var(--negative-foreground) / <alpha-value>)",
+        },
         ring: "hsl(var(--ring) / <alpha-value>)",
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
@@ -84,17 +96,29 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        display: ["var(--font-display)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgb(16 24 40 / 0.05)",
-        sm: "0 1px 3px 0 rgb(16 24 40 / 0.09), 0 1px 2px -1px rgb(16 24 40 / 0.06)",
-        DEFAULT: "0 1px 3px 0 rgb(16 24 40 / 0.10), 0 1px 2px -1px rgb(16 24 40 / 0.06)",
-        md: "0 4px 8px -2px rgb(16 24 40 / 0.10), 0 2px 4px -2px rgb(16 24 40 / 0.06)",
-        lg: "0 12px 20px -4px rgb(16 24 40 / 0.10), 0 4px 8px -4px rgb(16 24 40 / 0.05)",
-        xl: "0 20px 28px -6px rgb(16 24 40 / 0.12), 0 8px 10px -6px rgb(16 24 40 / 0.06)",
-        "2xl": "0 24px 48px -12px rgb(16 24 40 / 0.20)",
+        "2xs": "var(--shadow-2xs)",
+        xs: "var(--shadow-xs)",
+        sm: "var(--shadow-sm)",
+        DEFAULT: "var(--shadow)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+        xl: "var(--shadow-xl)",
+        "2xl": "var(--shadow-2xl)",
+        glow: "var(--shadow-glow)",
+        "glow-lg": "var(--shadow-glow-lg)",
+      },
+      backgroundImage: {
+        "gradient-brand": "var(--gradient-brand)",
+        "gradient-brand-soft": "var(--gradient-brand-soft)",
+      },
+      transitionTimingFunction: {
+        "out-expo": "var(--ease-out-expo)",
+        spring: "var(--ease-spring)",
       },
       keyframes: {
         "accordion-down": {
@@ -105,10 +129,37 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "fade-up": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "scale-in": {
+          from: { opacity: "0", transform: "scale(0.96)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        shimmer: {
+          from: { backgroundPosition: "200% 0" },
+          to: { backgroundPosition: "-200% 0" },
+        },
+        aurora: {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(4%, -6%) scale(1.08)" },
+          "66%": { transform: "translate(-5%, 4%) scale(0.95)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "fade-up": "fade-up 0.5s var(--ease-out-expo) both",
+        "fade-in": "fade-in 0.4s ease-out both",
+        "scale-in": "scale-in 0.35s var(--ease-out-expo) both",
+        shimmer: "shimmer 2.2s linear infinite",
+        aurora: "aurora 18s ease-in-out infinite",
+        "aurora-slow": "aurora 26s ease-in-out infinite reverse",
       },
     },
   },

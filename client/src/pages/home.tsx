@@ -1,47 +1,36 @@
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { useTheme } from "@/components/theme-provider";
-import { Moon, Sun, Users, PlusCircle, KeyRound, HelpCircle } from "lucide-react";
+import { AppHeader } from "@/components/app-header";
+import { Aurora } from "@/components/aurora";
+import { LogoTile } from "@/components/logo";
+import { ArrowRight, Coins, HelpCircle, KeyRound, PlusCircle, QrCode, Users } from "lucide-react";
 import type { Event, Member } from "@shared/schema";
 
-// SVG Logo: stylized ¥ with a split/divide motif
-function WaricanLogo({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 48 48"
-      fill="none"
-      aria-label="Warikan Master ロゴ"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Circle background */}
-      <circle cx="24" cy="24" r="22" stroke="currentColor" strokeWidth="2" />
-      {/* Yen symbol arms */}
-      <path d="M14 10 L24 24 L34 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {/* Yen vertical stem */}
-      <path d="M24 24 L24 38" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Yen horizontal bars */}
-      <path d="M18 28 L30 28" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M18 33 L30 33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Split dots on the arms */}
-      <circle cx="16" cy="12" r="2" fill="currentColor" opacity="0.5" />
-      <circle cx="32" cy="12" r="2" fill="currentColor" opacity="0.5" />
-    </svg>
-  );
-}
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+
+const fadeUp = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+};
+
+const FEATURES = [
+  { icon: KeyRound, label: "合言葉だけで参加" },
+  { icon: Coins, label: "1円単位でピッタリ精算" },
+  { icon: QrCode, label: "QRでサッと共有" },
+] as const;
 
 export default function Home() {
   const [, setLocation] = useLocation();
   const [keyword, setKeyword] = useState("");
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
 
   const joinMutation = useMutation({
     mutationFn: async (kw: string) => {
@@ -67,122 +56,148 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <WaricanLogo className="w-8 h-8 text-primary" />
-            <span className="font-bold text-base text-foreground tracking-tight">Warikan Master</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Link href="/help">
-              <Button
-                variant="ghost"
-                size="icon"
-                data-testid="button-help"
-                aria-label="ヘルプ"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-            </Link>
+    <div className="relative isolate flex min-h-screen flex-col bg-background">
+      <Aurora />
+
+      <AppHeader
+        title={
+          <span className="font-display text-base font-bold tracking-tight text-foreground">
+            Warikan Master
+          </span>
+        }
+        actions={
+          <Link href="/help">
             <Button
               variant="ghost"
               size="icon"
-              onClick={toggleTheme}
-              data-testid="button-toggle-theme"
-              aria-label="テーマ切り替え"
+              className="rounded-full"
+              data-testid="button-help"
+              aria-label="ヘルプ"
             >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              <HelpCircle className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-      </header>
+          </Link>
+        }
+      />
 
       {/* Main */}
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-10">
+      <main className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-lg space-y-4">
           {/* Hero */}
-          <div className="text-center mb-8">
-            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/10 shadow-sm">
-              <WaricanLogo className="w-12 h-12 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2 tracking-tight">割り勘マスター</h1>
-            <p className="text-sm text-muted-foreground leading-relaxed">
+          <motion.div
+            className="mb-10 text-center"
+            {...fadeUp}
+            transition={{ duration: 0.6, ease: EASE }}
+          >
+            <LogoTile className="mx-auto mb-6 h-20 w-20" />
+            <p className="mb-3 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary">
+              Split bills, beautifully
+            </p>
+            <h1 className="mb-3 text-3xl font-black tracking-tight text-foreground">
+              割り勘マスター
+            </h1>
+            <p className="text-sm leading-relaxed text-muted-foreground">
               旅行・食事の割り勘をかんたんに。<br />
               合言葉でグループに参加しましょう。
             </p>
-          </div>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              {FEATURES.map(({ icon: Icon, label }) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs backdrop-blur-sm"
+                >
+                  <Icon className="h-3 w-3 text-primary" />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </motion.div>
 
           {/* Join Card */}
-          <Card data-testid="card-join">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-primary" />
-                イベントに参加する
-              </CardTitle>
-              <CardDescription className="text-sm">合言葉を入力してイベントに参加します</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleJoin} className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="keyword" className="text-sm">合言葉</Label>
-                  <Input
-                    id="keyword"
-                    data-testid="input-keyword"
-                    placeholder="例：osaka2024"
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                    disabled={joinMutation.isPending}
-                    autoComplete="off"
-                  />
+          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.1 }}>
+            <Card data-testid="card-join" className="rounded-3xl shadow-lg">
+              <CardHeader className="pb-3">
+                <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <KeyRound className="h-5 w-5" />
                 </div>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={joinMutation.isPending || !keyword.trim()}
-                  data-testid="button-join"
-                >
-                  {joinMutation.isPending ? "参加中..." : "参加する"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+                <CardTitle className="text-base">イベントに参加する</CardTitle>
+                <CardDescription className="text-sm">合言葉を入力してイベントに参加します</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleJoin} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="keyword" className="text-sm">合言葉</Label>
+                    <Input
+                      id="keyword"
+                      data-testid="input-keyword"
+                      placeholder="例：osaka2024"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      disabled={joinMutation.isPending}
+                      autoComplete="off"
+                      className="h-12 text-center font-display text-base font-semibold tracking-wide"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={joinMutation.isPending || !keyword.trim()}
+                    data-testid="button-join"
+                  >
+                    {joinMutation.isPending ? "参加中..." : (
+                      <>
+                        参加する
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {/* Create Card */}
-          <Card data-testid="card-create">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <PlusCircle className="h-4 w-4 text-primary" />
-                新しいイベントを作成する
-              </CardTitle>
-              <CardDescription className="text-sm">
-                旅行や食事のイベントを作って、みんなを招待しましょう
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                className="w-full"
-                variant="outline"
-                onClick={() => setLocation("/create")}
-                data-testid="button-go-create"
-              >
-                <Users className="h-4 w-4 mr-2" />
-                イベントを作る
-              </Button>
-            </CardContent>
-          </Card>
+          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.18 }}>
+            <Card data-testid="card-create" className="rounded-3xl">
+              <CardHeader className="pb-3">
+                <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                  <PlusCircle className="h-5 w-5" />
+                </div>
+                <CardTitle className="text-base">新しいイベントを作成する</CardTitle>
+                <CardDescription className="text-sm">
+                  旅行や食事のイベントを作って、みんなを招待しましょう
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  size="lg"
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => setLocation("/create")}
+                  data-testid="button-go-create"
+                >
+                  <Users className="h-4 w-4" />
+                  イベントを作る
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {/* Admin link */}
-          <div className="text-center pt-2">
+          <motion.div
+            className="pt-2 text-center"
+            {...fadeUp}
+            transition={{ duration: 0.55, ease: EASE, delay: 0.26 }}
+          >
             <button
               onClick={() => setLocation("/admin")}
-              className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors"
+              className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
               data-testid="link-admin"
             >
               管理者ログイン
             </button>
-          </div>
+          </motion.div>
         </div>
       </main>
     </div>

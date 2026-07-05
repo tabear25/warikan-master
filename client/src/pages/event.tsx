@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useLocation, Link } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { toPng } from "html-to-image";
+import { motion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -32,11 +33,14 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useTheme } from "@/components/theme-provider";
+import { AppHeader } from "@/components/app-header";
+import { Aurora } from "@/components/aurora";
+import { MemberAvatar } from "@/components/member-avatar";
+import { cn } from "@/lib/utils";
 import {
-  Moon, Sun, ArrowLeft, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
+  PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
-  Scale, Coins, SplitSquareHorizontal,
+  Scale, Coins, SplitSquareHorizontal, KeyRound,
 } from "lucide-react";
 import type { Event, Member, Payment, SplitMode } from "@shared/schema";
 import { splitYen } from "@shared/split";
@@ -50,19 +54,12 @@ import {
   safeFileName,
 } from "@/lib/export";
 
-function WaricanLogo({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" aria-label="Warikan Master" className={className} xmlns="http://www.w3.org/2000/svg">
-      <circle cx="24" cy="24" r="22" stroke="currentColor" strokeWidth="2" />
-      <path d="M14 10 L24 24 L34 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M24 24 L24 38" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M18 28 L30 28" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M18 33 L30 33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="16" cy="12" r="2" fill="currentColor" opacity="0.5" />
-      <circle cx="32" cy="12" r="2" fill="currentColor" opacity="0.5" />
-    </svg>
-  );
-}
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+
+const fadeUp = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+};
 
 const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   equal: "均等",
@@ -206,7 +203,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm mx-4 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-base">{isEdit ? "支払いを編集" : "支払いを追加"}</DialogTitle>
           <DialogDescription className="text-sm">誰が何をいくら払ったか記録します</DialogDescription>
@@ -240,6 +237,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
               placeholder="例：3500"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              className="font-display text-base font-semibold tabular-nums"
             />
           </div>
 
@@ -270,9 +268,12 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
                 <label
                   key={value}
                   htmlFor={`mode-${value}`}
-                  className={`flex flex-col items-center gap-1 rounded-lg border p-2 cursor-pointer text-xs transition-colors ${
-                    splitMode === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
-                  }`}
+                  className={cn(
+                    "flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border-2 p-2.5 text-xs font-semibold transition-all duration-200",
+                    splitMode === value
+                      ? "border-primary bg-primary/10 text-primary shadow-xs"
+                      : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+                  )}
                   data-testid={`split-mode-${value}`}
                 >
                   <RadioGroupItem value={value} id={`mode-${value}`} className="sr-only" />
@@ -286,26 +287,33 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
           {/* 割り勘対象 */}
           <div className="space-y-2">
             <Label className="text-sm">割り勘する人</Label>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {members.map((m) => {
                 const checked = selectedIds.includes(m.id);
                 const share = preview.get(m.id);
                 return (
-                  <div key={m.id} className="flex items-center gap-2">
+                  <div
+                    key={m.id}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-150",
+                      checked ? "bg-accent/60" : "opacity-70",
+                    )}
+                  >
                     <Checkbox
                       id={`split-member-${m.id}`}
                       data-testid={`checkbox-split-member-${m.id}`}
                       checked={checked}
                       onCheckedChange={() => toggleMember(m.id)}
                     />
-                    <label htmlFor={`split-member-${m.id}`} className="text-sm cursor-pointer flex-1 truncate">{m.name}</label>
+                    <MemberAvatar name={m.name} className="h-6 w-6 text-[10px]" />
+                    <label htmlFor={`split-member-${m.id}`} className="flex-1 cursor-pointer truncate text-sm font-medium">{m.name}</label>
                     {checked && splitMode === "ratio" && (
                       <Input
                         type="number"
                         min="0"
                         step="1"
                         inputMode="numeric"
-                        className="h-7 w-16 text-xs"
+                        className="h-8 w-16 rounded-lg px-2 text-center text-xs tabular-nums"
                         value={weights[m.id] ?? ""}
                         onChange={(e) => setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))}
                         data-testid={`weight-${m.id}`}
@@ -318,7 +326,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
                         min="0"
                         step="1"
                         inputMode="numeric"
-                        className="h-7 w-20 text-xs"
+                        className="h-8 w-20 rounded-lg px-2 text-right text-xs tabular-nums"
                         placeholder="円"
                         value={amounts[m.id] ?? ""}
                         onChange={(e) => setAmounts((prev) => ({ ...prev, [m.id]: e.target.value }))}
@@ -327,14 +335,14 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
                       />
                     )}
                     {checked && splitMode !== "amount" && share !== undefined && (
-                      <span className="text-xs text-muted-foreground w-16 text-right tabular-nums">{formatYen(share)}</span>
+                      <span className="money w-16 text-right text-xs font-semibold tabular-nums text-muted-foreground">{formatYen(share)}</span>
                     )}
                   </div>
                 );
               })}
             </div>
             {splitMode === "amount" && Number.isFinite(amountNum) && amountNum > 0 && (
-              <p className={`text-xs text-right ${amountsMatch ? "text-muted-foreground" : "text-destructive"}`}>
+              <p className={cn("text-right text-xs tabular-nums", amountsMatch ? "text-muted-foreground" : "text-negative")}>
                 内訳合計 ¥{amountsSum.toLocaleString("ja-JP")} / 金額 ¥{amountNum.toLocaleString("ja-JP")}
                 {!amountsMatch && `（差 ¥${Math.abs(amountNum - amountsSum).toLocaleString("ja-JP")}）`}
               </p>
@@ -343,6 +351,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment }: Paymen
 
           <Button
             type="submit"
+            size="lg"
             className="w-full"
             disabled={mutation.isPending}
             data-testid="button-submit-payment"
@@ -383,7 +392,7 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm mx-4">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-base">メンバーを追加</DialogTitle>
           <DialogDescription className="text-sm">後から参加する人を追加できます</DialogDescription>
@@ -399,7 +408,7 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
             data-testid="input-new-member"
             autoFocus
           />
-          <Button type="submit" className="w-full" disabled={mutation.isPending || !name.trim()} data-testid="button-submit-member">
+          <Button type="submit" size="lg" className="w-full" disabled={mutation.isPending || !name.trim()} data-testid="button-submit-member">
             {mutation.isPending ? "追加中..." : "追加する"}
           </Button>
         </form>
@@ -434,7 +443,7 @@ function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChang
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm mx-4">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-base">イベントを共有</DialogTitle>
           <DialogDescription className="text-sm">リンクや QR コードで仲間を招待できます</DialogDescription>
@@ -442,20 +451,26 @@ function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChang
         <div className="space-y-4">
           {qr && (
             <div className="flex justify-center">
-              <img src={qr} alt="QRコード" className="rounded-lg border border-border" width={180} height={180} />
+              {/* QR は読み取り精度のため常に白地に載せる */}
+              <div className="rounded-2xl border border-card-border bg-white p-3 shadow-sm">
+                <img src={qr} alt="QRコード" className="rounded-lg" width={172} height={172} />
+              </div>
             </div>
           )}
           <div className="space-y-1.5">
             <Label className="text-sm">共有リンク</Label>
             <div className="flex gap-2">
               <Input readOnly value={shareUrl} className="text-xs" data-testid="input-share-url" onFocus={(e) => e.target.select()} />
-              <Button type="button" variant="outline" size="icon" onClick={handleCopy} data-testid="button-copy-link" aria-label="リンクをコピー">
-                {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
+              <Button type="button" variant="outline" size="icon" className="h-11 w-11 shrink-0" onClick={handleCopy} data-testid="button-copy-link" aria-label="リンクをコピー">
+                {copied ? <Check className="h-4 w-4 text-positive" /> : <Copy className="h-4 w-4" />}
               </Button>
             </div>
           </div>
-          <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-            合言葉でも参加できます： <span className="font-semibold text-foreground">{event.keyword}</span>
+          <div className="flex items-center gap-2 rounded-xl bg-accent/60 p-3 text-xs text-muted-foreground">
+            <KeyRound className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>
+              合言葉でも参加できます： <span className="font-display font-bold text-foreground">{event.keyword}</span>
+            </span>
           </div>
         </div>
       </DialogContent>
@@ -470,20 +485,34 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
   const pct = max > 0 ? Math.min(100, (Math.abs(balance) / max) * 100) : 0;
   const positive = balance >= 0;
   return (
-    <div className="space-y-1" data-testid={`balance-${name}`}>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-foreground truncate">{name}</span>
-        <span className={positive ? "text-primary font-semibold tabular-nums" : "text-destructive font-semibold tabular-nums"}>
+    <div className="space-y-1.5" data-testid={`balance-${name}`}>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex min-w-0 items-center gap-2">
+          <MemberAvatar name={name} className="h-6 w-6 text-[10px]" />
+          <span className="truncate font-medium text-foreground">{name}</span>
+        </span>
+        <span className={cn("money font-bold tabular-nums", positive ? "text-positive" : "text-negative")}>
           {formatSignedYen(balance)}
         </span>
       </div>
-      <div className="relative h-2 rounded-full bg-muted overflow-hidden flex">
-        <div className="w-1/2 flex justify-end">
-          {!positive && <div className="h-full rounded-l-full bg-destructive" style={{ width: `${pct}%` }} />}
+      <div className="relative flex h-2.5 overflow-hidden rounded-full bg-muted">
+        <div className="flex w-1/2 justify-end">
+          {!positive && (
+            <div
+              className="h-full rounded-l-full bg-gradient-to-l from-negative/60 to-negative"
+              style={{ width: `${pct}%` }}
+            />
+          )}
         </div>
-        <div className="w-1/2 flex justify-start">
-          {positive && <div className="h-full rounded-r-full bg-primary" style={{ width: `${pct}%` }} />}
+        <div className="flex w-1/2 justify-start">
+          {positive && (
+            <div
+              className="h-full rounded-r-full bg-gradient-to-r from-positive/60 to-positive"
+              style={{ width: `${pct}%` }}
+            />
+          )}
         </div>
+        <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border" />
       </div>
     </div>
   );
@@ -494,7 +523,6 @@ export default function EventPage() {
   const eventId = parseInt(id ?? "0");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
   const queryClientHook = useQueryClient();
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
@@ -615,10 +643,11 @@ export default function EventPage() {
 
   if (isNaN(eventId) || eventId <= 0) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <Card className="w-full max-w-sm text-center">
-          <CardContent className="pt-8 pb-6">
-            <p className="text-muted-foreground text-sm mb-4">無効なイベントIDです</p>
+      <div className="relative isolate flex min-h-screen items-center justify-center bg-background px-4">
+        <Aurora />
+        <Card className="w-full max-w-sm rounded-3xl text-center">
+          <CardContent className="pb-6 pt-8">
+            <p className="mb-4 text-sm text-muted-foreground">無効なイベントIDです</p>
             <Button onClick={() => setLocation("/")} variant="outline">ホームへ戻る</Button>
           </CardContent>
         </Card>
@@ -627,77 +656,69 @@ export default function EventPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-md">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <Link href="/">
-              <button className="p-1 rounded-md hover:bg-accent transition-colors" data-testid="button-back">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            </Link>
-            <WaricanLogo className="w-7 h-7 text-primary flex-shrink-0" />
-            {eventQuery.isLoading ? (
-              <Skeleton className="h-4 w-24" />
-            ) : (
-              <span className="font-bold text-sm text-foreground truncate max-w-[140px] tracking-tight">
-                {event?.name ?? "イベント"}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
+    <div className="relative isolate flex min-h-screen flex-col bg-background">
+      <Aurora />
+
+      <AppHeader
+        backHref="/"
+        title={
+          eventQuery.isLoading ? (
+            <Skeleton className="h-4 w-24" />
+          ) : (
+            <span className="max-w-[140px] truncate text-sm font-bold tracking-tight text-foreground">
+              {event?.name ?? "イベント"}
+            </span>
+          )
+        }
+        actions={
+          <>
             {event?.isSettled && (
-              <Badge variant="secondary" className="text-xs">精算済み</Badge>
+              <Badge variant="secondary" className="gap-1 text-xs text-positive">
+                <CheckCircle2 className="h-3 w-3" />
+                精算済み
+              </Badge>
             )}
             {event && (
-              <Button variant="ghost" size="icon" onClick={() => setShareOpen(true)} data-testid="button-share" aria-label="共有">
+              <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setShareOpen(true)} data-testid="button-share" aria-label="共有">
                 <Share2 className="h-4 w-4" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              data-testid="button-toggle-theme"
-              aria-label="テーマ切り替え"
-            >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      <main className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4">
         {/* Keyword chip */}
         {event && (
           <button
             onClick={handleCopyKeyword}
-            className="inline-flex items-center gap-1.5 mb-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 py-1 pl-3 pr-2.5 text-xs text-muted-foreground shadow-xs backdrop-blur-sm transition-colors duration-200 hover:text-foreground"
             data-testid="button-copy-keyword"
           >
-            合言葉: <span className="font-semibold text-foreground">{event.keyword}</span>
-            {keywordCopied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
+            <KeyRound className="h-3 w-3 text-primary" />
+            合言葉: <span className="font-display font-bold text-foreground">{event.keyword}</span>
+            {keywordCopied ? <Check className="h-3 w-3 text-positive" /> : <Copy className="h-3 w-3" />}
           </button>
         )}
 
         {/* Members bar */}
         {membersQuery.isLoading ? (
-          <div className="flex gap-2 mb-4">
+          <div className="mb-4 flex gap-2">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-20 rounded-full" />)}
           </div>
         ) : memberList.length > 0 && (
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
             {memberList.map((m) => (
-              <Badge key={m.id} variant="secondary" className="text-xs" data-testid={`badge-member-${m.id}`}>
+              <Badge key={m.id} variant="secondary" className="gap-1.5 py-0.5 pl-1 pr-2.5 text-xs" data-testid={`badge-member-${m.id}`}>
+                <MemberAvatar name={m.name} className="h-5 w-5 text-[9px]" />
                 {m.name}
               </Badge>
             ))}
             {!event?.isSettled && memberList.length < 50 && (
               <button
                 onClick={() => setAddMemberOpen(true)}
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary transition-colors duration-200 hover:bg-primary/10"
                 data-testid="button-add-member"
               >
                 <UserPlus className="h-3.5 w-3.5" /> 追加
@@ -707,13 +728,13 @@ export default function EventPage() {
         )}
 
         <Tabs defaultValue="payments" className="w-full">
-          <TabsList className="w-full mb-4">
-            <TabsTrigger value="payments" className="flex-1" data-testid="tab-payments">
-              <Receipt className="h-4 w-4 mr-1.5" />
+          <TabsList className="mb-4 grid w-full grid-cols-2">
+            <TabsTrigger value="payments" data-testid="tab-payments">
+              <Receipt className="mr-1.5 h-4 w-4" />
               支払い一覧
             </TabsTrigger>
-            <TabsTrigger value="settlement" className="flex-1" data-testid="tab-settlement">
-              <Wallet className="h-4 w-4 mr-1.5" />
+            <TabsTrigger value="settlement" data-testid="tab-settlement">
+              <Wallet className="mr-1.5 h-4 w-4" />
               精算結果
             </TabsTrigger>
           </TabsList>
@@ -721,21 +742,24 @@ export default function EventPage() {
           {/* Payments Tab */}
           <TabsContent value="payments">
             {!event?.isSettled && (
-              <Button
-                className="w-full mb-4"
-                onClick={() => { setEditingPayment(null); setPaymentDialogOpen(true); }}
-                data-testid="button-add-payment"
-              >
-                <PlusCircle className="h-4 w-4 mr-2" />
-                支払いを追加
-              </Button>
+              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+                <Button
+                  size="lg"
+                  className="mb-4 w-full"
+                  onClick={() => { setEditingPayment(null); setPaymentDialogOpen(true); }}
+                  data-testid="button-add-payment"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  支払いを追加
+                </Button>
+              </motion.div>
             )}
 
             {/* Summary row */}
             {paymentList.length > 0 && (
-              <div className="flex items-center justify-between mb-3 text-xs text-muted-foreground">
+              <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
                 <span>支払い {paymentList.length} 件</span>
-                <span>合計 <span className="font-semibold text-foreground">{formatYen(totalSpent)}</span></span>
+                <span>合計 <span className="money font-bold text-foreground tabular-nums">{formatYen(totalSpent)}</span></span>
               </div>
             )}
 
@@ -743,72 +767,86 @@ export default function EventPage() {
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <Card key={i}>
-                    <CardContent className="pt-4 pb-4">
-                      <Skeleton className="h-4 w-3/4 mb-2" />
+                    <CardContent className="pb-4 pt-4">
+                      <Skeleton className="mb-2 h-4 w-3/4" />
                       <Skeleton className="h-4 w-1/2" />
                     </CardContent>
                   </Card>
                 ))}
               </div>
             ) : paymentList.length === 0 ? (
-              <Card>
-                <CardContent className="py-10 text-center">
-                  <Receipt className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-                  <p className="text-sm text-muted-foreground mb-1 font-medium">まだ支払いがありません</p>
-                  <p className="text-xs text-muted-foreground">「支払いを追加」ボタンで記録を始めましょう</p>
-                </CardContent>
-              </Card>
+              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE, delay: 0.05 }}>
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
+                      <Receipt className="h-7 w-7" />
+                    </div>
+                    <p className="mb-1 text-sm font-semibold text-foreground">まだ支払いがありません</p>
+                    <p className="text-xs text-muted-foreground">「支払いを追加」ボタンで記録を始めましょう</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
               <div className="space-y-2">
-                {sortedPayments.map((p) => {
+                {sortedPayments.map((p, index) => {
                   const splitIds: number[] = JSON.parse(p.splitMemberIds);
                   const isAllMembers = splitIds.length === memberList.length;
                   const mode = (p.splitMode ?? "equal") as SplitMode;
+                  const payerName = getMemberName(p.payerId);
                   return (
-                    <Card key={p.id} data-testid={`card-payment-${p.id}`}>
-                      <CardContent className="pt-3 pb-3 flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <span className="font-semibold text-sm text-foreground">{formatYen(p.amount)}</span>
-                            <span className="text-xs text-muted-foreground">← {getMemberName(p.payerId)}</span>
-                            {mode !== "equal" && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{SPLIT_MODE_LABEL[mode]}</Badge>
+                    <motion.div
+                      key={p.id}
+                      {...fadeUp}
+                      transition={{ duration: 0.4, ease: EASE, delay: Math.min(index, 8) * 0.045 }}
+                    >
+                      <Card data-testid={`card-payment-${p.id}`} className="hover:shadow-md">
+                        <CardContent className="flex items-center gap-3 p-4">
+                          <MemberAvatar name={payerName} className="h-10 w-10 text-sm" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <p className="truncate text-sm font-semibold text-foreground">{p.description}</p>
+                              {mode !== "equal" && (
+                                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{SPLIT_MODE_LABEL[mode]}</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {payerName} が支払い ·{" "}
+                              {isAllMembers && mode === "equal"
+                                ? "全員で割り勘"
+                                : `${splitIds.map((memberId) => getMemberName(memberId)).join("、")} で割り勘`}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <span className="money text-base font-bold tabular-nums text-foreground">{formatYen(p.amount)}</span>
+                            {!event?.isSettled && (
+                              <div className="flex gap-0.5">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-primary"
+                                  onClick={() => { setEditingPayment(p); setPaymentDialogOpen(true); }}
+                                  data-testid={`button-edit-payment-${p.id}`}
+                                  aria-label="支払いを編集"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                                  onClick={() => setPaymentToDelete(p)}
+                                  disabled={deletePaymentMutation.isPending}
+                                  data-testid={`button-delete-payment-${p.id}`}
+                                  aria-label="支払いを削除"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             )}
                           </div>
-                          <p className="text-sm text-foreground mb-1">{p.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {isAllMembers && mode === "equal"
-                              ? "全員で割り勘"
-                              : `${splitIds.map((memberId) => getMemberName(memberId)).join("、")} で割り勘`}
-                          </p>
-                        </div>
-                        {!event?.isSettled && (
-                          <div className="flex flex-col gap-1 flex-shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-primary h-7 w-7"
-                              onClick={() => { setEditingPayment(p); setPaymentDialogOpen(true); }}
-                              data-testid={`button-edit-payment-${p.id}`}
-                              aria-label="支払いを編集"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-destructive h-7 w-7"
-                              onClick={() => setPaymentToDelete(p)}
-                              disabled={deletePaymentMutation.isPending}
-                              data-testid={`button-delete-payment-${p.id}`}
-                              aria-label="支払いを削除"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -851,118 +889,140 @@ export default function EventPage() {
               <div className="space-y-3">
                 {[1, 2].map((i) => (
                   <Card key={i}>
-                    <CardContent className="pt-4 pb-4"><Skeleton className="h-5 w-full" /></CardContent>
+                    <CardContent className="pb-4 pt-4"><Skeleton className="h-5 w-full" /></CardContent>
                   </Card>
                 ))}
               </div>
             ) : paymentList.length === 0 ? (
-              <Card>
-                <CardContent className="py-10 text-center">
-                  <Wallet className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-                  <p className="text-sm text-muted-foreground mb-1 font-medium">支払いを追加してください</p>
-                  <p className="text-xs text-muted-foreground">支払いを記録すると精算結果が表示されます</p>
-                </CardContent>
-              </Card>
+              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
+                      <Wallet className="h-7 w-7" />
+                    </div>
+                    <p className="mb-1 text-sm font-semibold text-foreground">支払いを追加してください</p>
+                    <p className="text-xs text-muted-foreground">支払いを記録すると精算結果が表示されます</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
               <div className="space-y-4">
                 <div ref={settlementRef} className="space-y-4 bg-background">
-                  {/* Summary cards */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <Card>
+                  {/* Summary stats */}
+                  <motion.div
+                    className="grid grid-cols-3 gap-2"
+                    {...fadeUp}
+                    transition={{ duration: 0.45, ease: EASE }}
+                  >
+                    <Card className="border-transparent bg-gradient-brand text-primary-foreground shadow-glow">
                       <CardContent className="p-3 text-center">
-                        <p className="text-[10px] text-muted-foreground mb-0.5">総支出</p>
-                        <p className="text-sm font-bold text-foreground tabular-nums">{formatYen(totalSpent)}</p>
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider opacity-80">総支出</p>
+                        <p className="money text-sm font-bold tabular-nums">{formatYen(totalSpent)}</p>
                       </CardContent>
                     </Card>
                     <Card>
                       <CardContent className="p-3 text-center">
-                        <p className="text-[10px] text-muted-foreground mb-0.5">件数</p>
-                        <p className="text-sm font-bold text-foreground tabular-nums">{paymentList.length}</p>
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">件数</p>
+                        <p className="money text-sm font-bold tabular-nums text-foreground">{paymentList.length}</p>
                       </CardContent>
                     </Card>
                     <Card>
                       <CardContent className="p-3 text-center">
-                        <p className="text-[10px] text-muted-foreground mb-0.5">1人平均</p>
-                        <p className="text-sm font-bold text-foreground tabular-nums">{formatYen(perPersonAvg)}</p>
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">1人平均</p>
+                        <p className="money text-sm font-bold tabular-nums text-foreground">{formatYen(perPersonAvg)}</p>
                       </CardContent>
                     </Card>
-                  </div>
+                  </motion.div>
 
                   {/* Balance bars */}
                   {settlement && memberList.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2 pt-4">
-                        <CardTitle className="text-sm font-semibold">各自の収支</CardTitle>
-                        <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
-                      </CardHeader>
-                      <CardContent className="pb-4 space-y-3">
-                        {memberList.map((m) => (
-                          <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
-                        ))}
-                      </CardContent>
-                    </Card>
+                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
+                      <Card>
+                        <CardHeader className="pb-2 pt-4">
+                          <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
+                          <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3.5 pb-4">
+                          {memberList.map((m) => (
+                            <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   )}
 
                   {/* Transfers */}
                   {settlement?.transfers.length === 0 ? (
-                    <Card>
-                      <CardContent className="py-6 text-center">
-                        <CheckCircle2 className="h-8 w-8 text-primary mx-auto mb-2" />
-                        <p className="text-sm font-medium text-foreground">精算不要！</p>
-                        <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <Card>
-                      <CardHeader className="pb-2 pt-4">
-                        <CardTitle className="text-sm font-semibold">送金リスト</CardTitle>
-                        <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
-                      </CardHeader>
-                      <CardContent className="pb-4 space-y-2">
-                        {settlement?.transfers.map((t, i) => (
-                          <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50" data-testid={`transfer-${i}`}>
-                            <span className="text-sm font-medium text-foreground">{t.from}</span>
-                            <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
-                            <span className="text-sm font-medium text-foreground">{t.to}</span>
-                            <span className="ml-auto text-sm font-bold text-primary">{formatYen(t.amount)}</span>
+                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+                      <Card className="border-positive/20 bg-positive/5">
+                        <CardContent className="py-6 text-center">
+                          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
+                            <CheckCircle2 className="h-5 w-5" />
                           </div>
-                        ))}
-                      </CardContent>
-                    </Card>
+                          <p className="text-sm font-semibold text-foreground">精算不要！</p>
+                          <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ) : (
+                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+                      <Card>
+                        <CardHeader className="pb-2 pt-4">
+                          <CardTitle className="text-sm font-bold">送金リスト</CardTitle>
+                          <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2 pb-4">
+                          {settlement?.transfers.map((t, i) => (
+                            <div key={i} className="flex items-center gap-2 rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
+                              <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
+                              <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                <ArrowRight className="h-3.5 w-3.5" />
+                              </span>
+                              <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
+                              <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
+                              <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   )}
                 </div>
 
                 {/* Export actions */}
                 <div className="grid grid-cols-3 gap-2">
                   <Button variant="outline" size="sm" onClick={handleCopySummary} data-testid="button-copy-summary">
-                    <ClipboardCopy className="h-4 w-4 mr-1" /> コピー
+                    <ClipboardCopy className="h-4 w-4" /> コピー
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleDownloadCsv} data-testid="button-download-csv">
-                    <FileDown className="h-4 w-4 mr-1" /> CSV
+                    <FileDown className="h-4 w-4" /> CSV
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleDownloadImage} disabled={exportingImage} data-testid="button-download-image">
-                    <ImageIcon className="h-4 w-4 mr-1" /> {exportingImage ? "..." : "画像"}
+                    <ImageIcon className="h-4 w-4" /> {exportingImage ? "..." : "画像"}
                   </Button>
                 </div>
 
                 {/* Settle */}
                 {!event?.isSettled ? (
                   <Button
-                    variant="outline"
-                    className="w-full border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+                    size="lg"
+                    className="w-full"
                     onClick={() => setSettleConfirmOpen(true)}
                     disabled={settleMutation.isPending}
                     data-testid="button-settle"
                   >
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    <CheckCircle2 className="h-4 w-4" />
                     {settleMutation.isPending ? "精算中..." : "精算する"}
                   </Button>
                 ) : (
-                  <Card className="border-primary/30 bg-primary/5">
-                    <CardContent className="py-4 flex items-center gap-3">
-                      <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0" />
+                  <Card className="border-positive/20 bg-positive/5">
+                    <CardContent className="flex items-center gap-3 py-4">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-positive/15 text-positive">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </span>
                       <div>
-                        <p className="text-sm font-medium text-foreground">精算済み</p>
+                        <p className="text-sm font-semibold text-foreground">精算済み</p>
                         <p className="text-xs text-muted-foreground">このイベントは精算が完了しています</p>
                       </div>
                     </CardContent>

@@ -4,11 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <meta name="description" content="Warikan Master — 旅行や食事の割り勘を簡単に計算できるアプリです。" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5faf8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08120f" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Noto+Sans+JP:wght@100..900&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
     <title>Warikan Master — 割り勘アプリ</title>
+    <script>
+      // 描画前にテーマクラスを適用して、ダークモード時のちらつき（FOUC）を防ぐ
+      (function () {
+        try {
+          var stored = localStorage.getItem("warikan-theme");
+          var dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
