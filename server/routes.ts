@@ -1,4 +1,4 @@
-import type { Express, NextFunction, Request, Response } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
@@ -37,7 +37,8 @@ const adminLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
-  message: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。",
+  // オブジェクトを渡すと JSON で返る — 全 API のエラー形状 { error } に合わせる。
+  message: { error: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 // 一般エンドポイントの濫用対策。作成・参加・支払い系に緩めの制限をかける。
@@ -47,7 +48,40 @@ const writeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
-  message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 合言葉は実質的にイベントへのアクセス資格情報なので、総当たり推測を
+// 一般の書き込みより厳しく制限する。
+const joinLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 読み取り系（GET /api/*）の一括制限。通常利用では届かない緩い上限で、
+// スクレイピング・列挙系の濫用だけを弾く。
+const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => skipInTest() || req.method !== "GET",
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 管理 API はリクエスト毎に bcrypt 比較が走るため、CPU 濫用を防ぐ上限を設ける
+// （ログインの 5 回/分とは別に、認証済み運用でも困らない値）。
+const adminApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 // OGP 取得の濫用対策（要件 N-Sec-3: IP あたり 1 分 30 回）。外部サイトへの
@@ -58,7 +92,7 @@ const ogpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
-  message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 const updateSettlementStatusSchema = z.object({
@@ -168,6 +202,12 @@ export async function registerRoutes(
     next();
   };
 
+  // 管理ルート共通ガード: レート制限（bcrypt 比較の CPU 濫用対策）+ 認証。
+  const adminGuard: RequestHandler[] = [adminApiLimiter, requireAdmin];
+
+  // GET 全体の一括レート制限（POST/PATCH/DELETE は各 limiter が担当）。
+  app.use("/api", readLimiter);
+
   app.post("/api/admin/login", adminLoginLimiter, async (req, res) => {
     const parsed = adminLoginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -183,7 +223,7 @@ export async function registerRoutes(
     return res.json({ success: true, admin: { username } });
   });
 
-  app.get("/api/admin/events", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/events", adminGuard, async (_req: Request, res: Response) => {
     // イベント毎にメンバーを取りに行く N+1 を避け、2クエリでまとめて取得する
     // （本番はリモートの Turso なので往復回数がそのままレイテンシになる）。
     const allEvents = await storage.getAllEvents();
@@ -206,7 +246,7 @@ export async function registerRoutes(
     return res.json(eventsWithMembers);
   });
 
-  app.patch("/api/admin/events/:id/settlement", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/events/:id/settlement", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -225,7 +265,7 @@ export async function registerRoutes(
     return res.json(event);
   });
 
-  app.post("/api/admin/events/:id/members", requireAdmin, async (req, res) => {
+  app.post("/api/admin/events/:id/members", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -255,7 +295,7 @@ export async function registerRoutes(
     return res.status(201).json(member);
   });
 
-  app.delete("/api/admin/events/:id/members/:memberId", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/events/:id/members/:memberId", adminGuard, async (req: Request, res: Response) => {
     const eventId = parseInt(String(req.params.id), 10);
     const memberId = parseInt(String(req.params.memberId), 10);
 
@@ -300,7 +340,7 @@ export async function registerRoutes(
     return res.json({ success: true });
   });
 
-  app.delete("/api/admin/events/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/events/:id", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -357,13 +397,21 @@ export async function registerRoutes(
     return res.status(201).json({ event, members: createdMembers });
   });
 
-  app.post("/api/events/join", writeLimiter, async (req, res) => {
-    const keyword = typeof req.body?.keyword === "string" ? req.body.keyword.trim() : "";
-    if (!keyword) {
-      return res.status(400).json({ error: "Keyword is required" });
+  app.post("/api/events/join", joinLimiter, async (req, res) => {
+    const parsed = z
+      .object({
+        keyword: z
+          .string()
+          .trim()
+          .min(1, "合言葉を入力してください")
+          .max(LIMITS.keyword, `合言葉は${LIMITS.keyword}文字以内で入力してください`),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const event = await storage.getEventByKeyword(keyword);
+    const event = await storage.getEventByKeyword(parsed.data.keyword);
     if (!event) {
       return res.status(404).json({ error: "Event not found" });
     }

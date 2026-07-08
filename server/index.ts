@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import path from "path";
 import { registerRoutes } from "./routes";
@@ -13,6 +14,34 @@ const httpServer = createServer(app);
 
 // Render などのリバースプロキシ配下で req.ip を正しく取得する（レート制限のため）。
 app.set("trust proxy", 1);
+
+// セキュリティヘッダ。CSP は本番のみ有効にする（開発では Vite の HMR /
+// react-refresh がインラインスクリプトと eval を必要とするため）。
+const isProd = process.env.NODE_ENV === "production";
+app.use(
+  helmet({
+    contentSecurityPolicy: isProd
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            // Tailwind 由来のインラインスタイルと Google Fonts の CSS を許可。
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            // OGP サムネイル（任意の https ホスト）と QR コードの data: URL。
+            imgSrc: ["'self'", "data:", "https:"],
+            // html-to-image の精算画像エクスポートがフォント CSS/woff を fetch する。
+            connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'self'"],
+          },
+        }
+      : false,
+    // 外部画像（OGP サムネイル）の埋め込みを妨げないよう COEP は無効のまま。
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 
 declare module "http" {
   interface IncomingMessage {

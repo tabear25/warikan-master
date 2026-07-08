@@ -14,16 +14,7 @@
       rel="stylesheet"
     />
     <title>Warikan Master — 割り勘アプリ</title>
-    <script>
-      // 描画前にテーマクラスを適用して、ダークモード時のちらつき（FOUC）を防ぐ
-      (function () {
-        try {
-          var stored = localStorage.getItem("warikan-theme");
-          var dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-          if (dark) document.documentElement.classList.add("dark");
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
