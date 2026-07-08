@@ -18,8 +18,10 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
-# devDeps (drizzle-kit, tsx) are kept on purpose — needed by `npm run db:push`
-# at container startup so the schema is applied on a fresh database.
+# Runtime only needs production deps — migrations are applied programmatically
+# at server startup (drizzle-orm migrator), so drizzle-kit/tsx stay out of the
+# final image.
+RUN npm prune --omit=dev
 
 # ---------- runtime ----------
 FROM node:20-bookworm-slim AS runtime
@@ -43,9 +45,9 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 10000
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# Apply schema to the Turso database (idempotent) then start the server.
-CMD ["sh", "-c", "npm run db:push -- --force && node dist/index.cjs"]
+# Migrations are applied by the server itself at startup (fail-fast on error).
+CMD ["node", "dist/index.cjs"]

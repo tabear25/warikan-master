@@ -1,8 +1,8 @@
-import type { Express, NextFunction, Request, Response } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { storage } from "./storage";
+import { storage as defaultStorage, type IStorage } from "./storage";
 import { verifyAdminCredentials } from "./auth";
 import { calculateSettlement } from "./settlement";
 import { fetchOgpMetadata, OgpFetchError } from "./ogp";
@@ -26,6 +26,9 @@ const adminLoginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+// vitest（NODE_ENV=test）ではレート制限を無効化し、テストが 429 で落ちないようにする。
+const skipInTest = () => process.env.NODE_ENV === "test";
+
 // 管理者ログインのブルートフォース対策。失敗のみカウントし、1分あたり5回まで。
 const adminLoginLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -33,7 +36,9 @@ const adminLoginLimiter = rateLimit({
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。",
+  skip: skipInTest,
+  // オブジェクトを渡すと JSON で返る — 全 API のエラー形状 { error } に合わせる。
+  message: { error: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 // 一般エンドポイントの濫用対策。作成・参加・支払い系に緩めの制限をかける。
@@ -42,7 +47,41 @@ const writeLimiter = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 合言葉は実質的にイベントへのアクセス資格情報なので、総当たり推測を
+// 一般の書き込みより厳しく制限する。
+const joinLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 読み取り系（GET /api/*）の一括制限。通常利用では届かない緩い上限で、
+// スクレイピング・列挙系の濫用だけを弾く。
+const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => skipInTest() || req.method !== "GET",
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+});
+
+// 管理 API はリクエスト毎に bcrypt 比較が走るため、CPU 濫用を防ぐ上限を設ける
+// （ログインの 5 回/分とは別に、認証済み運用でも困らない値）。
+const adminApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 // OGP 取得の濫用対策（要件 N-Sec-3: IP あたり 1 分 30 回）。外部サイトへの
@@ -52,7 +91,8 @@ const ogpLimiter = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
+  skip: skipInTest,
+  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
 });
 
 const updateSettlementStatusSchema = z.object({
@@ -88,6 +128,7 @@ function paymentInputToFields(input: PaymentInput): Omit<InsertPayment, "eventId
 
 // payer / split 対象がすべてイベントのメンバーかを検証する。
 async function validatePaymentMembers(
+  storage: IStorage,
   eventId: number,
   input: PaymentInput,
 ): Promise<string | null> {
@@ -127,6 +168,7 @@ function scheduleInputToFields(
 
 // スケジュール項目の支払者（任意）がイベントのメンバーかを検証する。
 async function validateSchedulePayer(
+  storage: IStorage,
   eventId: number,
   payerId: number | undefined,
 ): Promise<string | null> {
@@ -138,7 +180,12 @@ async function validateSchedulePayer(
   return null;
 }
 
-export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+// storage はテストから :memory: DB を注入できるよう引数で差し替え可能にする。
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express,
+  storage: IStorage = defaultStorage,
+): Promise<Server> {
   const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
     const adminUsername = req.headers["x-admin-username"];
     const adminPassword = req.headers["x-admin-password"];
@@ -155,6 +202,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     next();
   };
 
+  // 管理ルート共通ガード: レート制限（bcrypt 比較の CPU 濫用対策）+ 認証。
+  const adminGuard: RequestHandler[] = [adminApiLimiter, requireAdmin];
+
+  // GET 全体の一括レート制限（POST/PATCH/DELETE は各 limiter が担当）。
+  app.use("/api", readLimiter);
+
   app.post("/api/admin/login", adminLoginLimiter, async (req, res) => {
     const parsed = adminLoginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -170,19 +223,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({ success: true, admin: { username } });
   });
 
-  app.get("/api/admin/events", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/events", adminGuard, async (_req: Request, res: Response) => {
+    // イベント毎にメンバーを取りに行く N+1 を避け、2クエリでまとめて取得する
+    // （本番はリモートの Turso なので往復回数がそのままレイテンシになる）。
     const allEvents = await storage.getAllEvents();
-    const eventsWithMembers = await Promise.all(
-      allEvents.map(async (event) => ({
-        ...event,
-        members: await storage.getMembersByEvent(event.id),
-      })),
-    );
+    const allMembers = await storage.getMembersByEventIds(allEvents.map((event) => event.id));
+    const membersByEvent = new Map<number, typeof allMembers>();
+    for (const member of allMembers) {
+      const list = membersByEvent.get(member.eventId);
+      if (list) {
+        list.push(member);
+      } else {
+        membersByEvent.set(member.eventId, [member]);
+      }
+    }
+
+    const eventsWithMembers = allEvents.map((event) => ({
+      ...event,
+      members: membersByEvent.get(event.id) ?? [],
+    }));
 
     return res.json(eventsWithMembers);
   });
 
-  app.patch("/api/admin/events/:id/settlement", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/events/:id/settlement", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -201,7 +265,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(event);
   });
 
-  app.post("/api/admin/events/:id/members", requireAdmin, async (req, res) => {
+  app.post("/api/admin/events/:id/members", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -231,7 +295,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.status(201).json(member);
   });
 
-  app.delete("/api/admin/events/:id/members/:memberId", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/events/:id/members/:memberId", adminGuard, async (req: Request, res: Response) => {
     const eventId = parseInt(String(req.params.id), 10);
     const memberId = parseInt(String(req.params.memberId), 10);
 
@@ -276,7 +340,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({ success: true });
   });
 
-  app.delete("/api/admin/events/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/admin/events/:id", adminGuard, async (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
@@ -305,16 +369,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(409).json({ error: "その合言葉はすでに使われています" });
     }
 
-    const event = await storage.createEvent({
-      name,
-      keyword,
-      // type 未指定（旧クライアント含む）は従来どおりの 'other' として扱う。
-      type: type ?? "other",
-      startDate: startDate ?? null,
-      endDate: endDate ?? null,
-      createdAt: new Date().toISOString(),
-      isSettled: false,
-    });
+    let event;
+    try {
+      event = await storage.createEvent({
+        name,
+        keyword,
+        // type 未指定（旧クライアント含む）は従来どおりの 'other' として扱う。
+        type: type ?? "other",
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
+        createdAt: new Date().toISOString(),
+        isSettled: false,
+      });
+    } catch (err) {
+      // 事前チェックとの間のレースは DB の UNIQUE 制約で捕捉する。
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("UNIQUE constraint failed") || message.includes("SQLITE_CONSTRAINT")) {
+        return res.status(409).json({ error: "その合言葉はすでに使われています" });
+      }
+      throw err;
+    }
 
     const createdMembers = await Promise.all(
       memberNames.map((memberName) => storage.createMember({ eventId: event.id, name: memberName })),
@@ -323,13 +397,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.status(201).json({ event, members: createdMembers });
   });
 
-  app.post("/api/events/join", writeLimiter, async (req, res) => {
-    const keyword = typeof req.body?.keyword === "string" ? req.body.keyword.trim() : "";
-    if (!keyword) {
-      return res.status(400).json({ error: "Keyword is required" });
+  app.post("/api/events/join", joinLimiter, async (req, res) => {
+    const parsed = z
+      .object({
+        keyword: z
+          .string({ required_error: "合言葉を入力してください" })
+          .trim()
+          .min(1, "合言葉を入力してください")
+          .max(LIMITS.keyword, `合言葉は${LIMITS.keyword}文字以内で入力してください`),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const event = await storage.getEventByKeyword(keyword);
+    const event = await storage.getEventByKeyword(parsed.data.keyword);
     if (!event) {
       return res.status(404).json({ error: "Event not found" });
     }
@@ -477,7 +559,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const memberError = await validatePaymentMembers(id, parsed.data);
+    const memberError = await validatePaymentMembers(storage, id, parsed.data);
     if (memberError) {
       return res.status(400).json({ error: memberError });
     }
@@ -524,7 +606,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const memberError = await validatePaymentMembers(id, parsed.data);
+    const memberError = await validatePaymentMembers(storage, id, parsed.data);
     if (memberError) {
       return res.status(400).json({ error: memberError });
     }
@@ -598,7 +680,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    const payerError = await validateSchedulePayer(storage, id, parsed.data.payerId);
     if (payerError) {
       return res.status(400).json({ error: payerError });
     }
@@ -637,7 +719,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    const payerError = await validateSchedulePayer(storage, id, parsed.data.payerId);
     if (payerError) {
       return res.status(400).json({ error: payerError });
     }

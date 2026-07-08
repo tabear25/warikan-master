@@ -1,67 +1,87 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Events (trips, gatherings, etc.)
-export const events = sqliteTable("events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull(),
-  keyword: text("keyword").notNull(),
-  // 'trip' のときだけスケジュールタブが有効になる。既存イベントは 'other' のまま。
-  type: text("type").notNull().default("other"), // 'trip' | 'meal' | 'other'
-  startDate: text("start_date"), // "YYYY-MM-DD"（旅行タイプで任意）
-  endDate: text("end_date"),
-  createdAt: text("created_at").notNull(),
-  isSettled: integer("is_settled", { mode: "boolean" }).notNull().default(false),
-});
+export const events = sqliteTable(
+  "events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    keyword: text("keyword").notNull(),
+    // 'trip' のときだけスケジュールタブが有効になる。既存イベントは 'other' のまま。
+    type: text("type").notNull().default("other"), // 'trip' | 'meal' | 'other'
+    startDate: text("start_date"), // "YYYY-MM-DD"（旅行タイプで任意）
+    endDate: text("end_date"),
+    createdAt: text("created_at").notNull(),
+    isSettled: integer("is_settled", { mode: "boolean" }).notNull().default(false),
+  },
+  (table) => [
+    // 合言葉は join のルックアップキーかつ一意であるべき値。アプリ層の重複
+    // チェックだけではレース条件があるため DB 制約で保証する。
+    uniqueIndex("events_keyword_unique").on(table.keyword),
+  ],
+);
 
 // Members of an event
-export const members = sqliteTable("members", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  eventId: integer("event_id").notNull(),
-  name: text("name").notNull(),
-});
+export const members = sqliteTable(
+  "members",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id").notNull(),
+    name: text("name").notNull(),
+  },
+  (table) => [index("members_event_id_idx").on(table.eventId)],
+);
 
 // Payment records
-export const payments = sqliteTable("payments", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  eventId: integer("event_id").notNull(),
-  payerId: integer("payer_id").notNull(),
-  amount: real("amount").notNull(),
-  description: text("description").notNull(),
-  splitMemberIds: text("split_member_ids").notNull(), // JSON array of member IDs (participants)
-  // Split mode: how `amount` is divided among the participants in `splitMemberIds`.
-  //  - "equal"  : even split (legacy default; remainder handled deterministically)
-  //  - "ratio"  : weighted split, weights stored in splitDetails as { memberId: weight }
-  //  - "amount" : exact per-member amounts, stored in splitDetails as { memberId: yen }
-  splitMode: text("split_mode").notNull().default("equal"),
-  splitDetails: text("split_details"), // nullable JSON object keyed by member id; null => equal
-  scheduleItemId: integer("schedule_item_id"), // 由来のスケジュール項目（任意・双方向リンク）
-  createdAt: text("created_at").notNull(),
-});
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id").notNull(),
+    payerId: integer("payer_id").notNull(),
+    amount: real("amount").notNull(),
+    description: text("description").notNull(),
+    splitMemberIds: text("split_member_ids").notNull(), // JSON array of member IDs (participants)
+    // Split mode: how `amount` is divided among the participants in `splitMemberIds`.
+    //  - "equal"  : even split (legacy default; remainder handled deterministically)
+    //  - "ratio"  : weighted split, weights stored in splitDetails as { memberId: weight }
+    //  - "amount" : exact per-member amounts, stored in splitDetails as { memberId: yen }
+    splitMode: text("split_mode").notNull().default("equal"),
+    splitDetails: text("split_details"), // nullable JSON object keyed by member id; null => equal
+    scheduleItemId: integer("schedule_item_id"), // 由来のスケジュール項目（任意・双方向リンク）
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("payments_event_id_idx").on(table.eventId)],
+);
 
 // Trip schedule items (accommodation / transport / other reservations).
 // カテゴリ固有の詳細は metadata（JSON 文字列）に閉じ込め、テーブル追加を避ける。
-export const scheduleItems = sqliteTable("schedule_items", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  eventId: integer("event_id").notNull(),
-  category: text("category").notNull(), // 'accommodation' | 'transport' | 'other'
-  title: text("title").notNull(),
-  url: text("url"),
-  ogpTitle: text("ogp_title"),
-  ogpImage: text("ogp_image"),
-  ogpDescription: text("ogp_description"),
-  startAt: text("start_at"), // "YYYY-MM-DDTHH:mm"（JST ローカル時刻。datetime-local と同形式）
-  endAt: text("end_at"),
-  address: text("address"),
-  memo: text("memo"),
-  metadata: text("metadata"), // JSON string（カテゴリ別詳細。scheduleItemInputSchema 参照）
-  cost: real("cost"), // 割り勘対象金額（円、任意）
-  payerId: integer("payer_id"), // 支払者 members.id（任意）
-  paymentId: integer("payment_id"), // payments.id（割り勘に変換済みなら設定）
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const scheduleItems = sqliteTable(
+  "schedule_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id").notNull(),
+    category: text("category").notNull(), // 'accommodation' | 'transport' | 'other'
+    title: text("title").notNull(),
+    url: text("url"),
+    ogpTitle: text("ogp_title"),
+    ogpImage: text("ogp_image"),
+    ogpDescription: text("ogp_description"),
+    startAt: text("start_at"), // "YYYY-MM-DDTHH:mm"（JST ローカル時刻。datetime-local と同形式）
+    endAt: text("end_at"),
+    address: text("address"),
+    memo: text("memo"),
+    metadata: text("metadata"), // JSON string（カテゴリ別詳細。scheduleItemInputSchema 参照）
+    cost: real("cost"), // 割り勘対象金額（円、任意）
+    payerId: integer("payer_id"), // 支払者 members.id（任意）
+    paymentId: integer("payment_id"), // payments.id（割り勘に変換済みなら設定）
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("schedule_items_event_id_idx").on(table.eventId)],
+);
 
 // ---------------------------------------------------------------------------
 // Field length limits (shared between client and server) — guard against DoS

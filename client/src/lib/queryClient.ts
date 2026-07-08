@@ -5,7 +5,19 @@ const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    // API のエラー応答は { error } の JSON。生の JSON 文字列ではなく中の
+    // メッセージだけをトーストに出せるようパースする。
+    // 注: "ステータス: メッセージ" の形式は呼び出し側が依存しているため維持
+    // （includes("401") / replace(/^\d+: /, "") など）。
+    let detail = text;
+    try {
+      const body = JSON.parse(text);
+      const fromBody = body?.error ?? body?.message;
+      if (typeof fromBody === "string" && fromBody) detail = fromBody;
+    } catch {
+      // JSON でなければそのまま
+    }
+    throw new Error(`${res.status}: ${detail}`);
   }
 }
 

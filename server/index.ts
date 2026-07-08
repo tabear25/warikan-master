@@ -1,8 +1,12 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { loadAdminConfig } from "./auth";
+import { db } from "./storage";
 import { createServer } from "http";
 
 const app = express();
@@ -10,6 +14,34 @@ const httpServer = createServer(app);
 
 // Render などのリバースプロキシ配下で req.ip を正しく取得する（レート制限のため）。
 app.set("trust proxy", 1);
+
+// セキュリティヘッダ。CSP は本番のみ有効にする（開発では Vite の HMR /
+// react-refresh がインラインスクリプトと eval を必要とするため）。
+const isProd = process.env.NODE_ENV === "production";
+app.use(
+  helmet({
+    contentSecurityPolicy: isProd
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            // Tailwind 由来のインラインスタイルと Google Fonts の CSS を許可。
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            // OGP サムネイル（任意の https ホスト）と QR コードの data: URL。
+            imgSrc: ["'self'", "data:", "https:"],
+            // html-to-image の精算画像エクスポートがフォント CSS/woff を fetch する。
+            connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'self'"],
+          },
+        }
+      : false,
+    // 外部画像（OGP サムネイル）の埋め込みを妨げないよう COEP は無効のまま。
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 
 declare module "http" {
   interface IncomingMessage {
@@ -53,7 +85,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // レスポンスボディの内容（イベント名・メンバー名など）を本番のログ基盤に
+      // 残さない。開発時のみデバッグ用に付加する。
+      if (capturedJsonResponse && process.env.NODE_ENV !== "production") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -75,6 +109,21 @@ app.use((req, res, next) => {
     process.exit(1);
   }
 
+  // スキーマのマイグレーションを起動時に適用する（冪等・適用済みは journal で
+  // スキップ）。以前の「コンテナ起動毎に db:push --force」は破壊的変更を無警告で
+  // 本番 Turso に流すリスクがあったため、レビュー可能な生成マイグレーションに移行。
+  try {
+    await migrate(db, {
+      migrationsFolder: path.join(process.cwd(), "migrations"),
+    });
+    log("database migrations applied", "storage");
+  } catch (err) {
+    console.error(
+      `[起動中止] マイグレーションに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -87,7 +136,9 @@ app.use((req, res, next) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // 全ルートのエラー応答は { error } 形状に統一されている — ここも合わせる
+    // （モバイルクライアントは error / message の両対応なので互換性は保たれる）。
+    return res.status(status).json({ error: message });
   });
 
   // importantly only setup vite in development and after
