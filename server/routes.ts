@@ -305,16 +305,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(409).json({ error: "その合言葉はすでに使われています" });
     }
 
-    const event = await storage.createEvent({
-      name,
-      keyword,
-      // type 未指定（旧クライアント含む）は従来どおりの 'other' として扱う。
-      type: type ?? "other",
-      startDate: startDate ?? null,
-      endDate: endDate ?? null,
-      createdAt: new Date().toISOString(),
-      isSettled: false,
-    });
+    let event;
+    try {
+      event = await storage.createEvent({
+        name,
+        keyword,
+        // type 未指定（旧クライアント含む）は従来どおりの 'other' として扱う。
+        type: type ?? "other",
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
+        createdAt: new Date().toISOString(),
+        isSettled: false,
+      });
+    } catch (err) {
+      // 事前チェックとの間のレースは DB の UNIQUE 制約で捕捉する。
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("UNIQUE constraint failed") || message.includes("SQLITE_CONSTRAINT")) {
+        return res.status(409).json({ error: "その合言葉はすでに使われています" });
+      }
+      throw err;
+    }
 
     const createdMembers = await Promise.all(
       memberNames.map((memberName) => storage.createMember({ eventId: event.id, name: memberName })),

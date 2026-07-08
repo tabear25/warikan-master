@@ -1,8 +1,11 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { loadAdminConfig } from "./auth";
+import { db } from "./storage";
 import { createServer } from "http";
 
 const app = express();
@@ -71,6 +74,21 @@ app.use((req, res, next) => {
   } catch (err) {
     console.error(
       `[起動中止] ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
+
+  // スキーマのマイグレーションを起動時に適用する（冪等・適用済みは journal で
+  // スキップ）。以前の「コンテナ起動毎に db:push --force」は破壊的変更を無警告で
+  // 本番 Turso に流すリスクがあったため、レビュー可能な生成マイグレーションに移行。
+  try {
+    await migrate(db, {
+      migrationsFolder: path.join(process.cwd(), "migrations"),
+    });
+    log("database migrations applied", "storage");
+  } catch (err) {
+    console.error(
+      `[起動中止] マイグレーションに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
     );
     process.exit(1);
   }
