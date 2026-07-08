@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 // Treat empty/whitespace-only env vars as unset (a blank value in the Render
 // dashboard or `sync: false` should not count as "configured").
@@ -73,6 +73,7 @@ export interface IStorage {
   // Members
   createMember(member: InsertMember): Promise<Member>;
   getMembersByEvent(eventId: number): Promise<Member[]>;
+  getMembersByEventIds(eventIds: number[]): Promise<Member[]>;
   getMember(id: number): Promise<Member | undefined>;
   deleteMember(id: number): Promise<void>;
 
@@ -146,6 +147,11 @@ export class DatabaseStorage implements IStorage {
 
   async getMembersByEvent(eventId: number): Promise<Member[]> {
     return db.select().from(members).where(eq(members.eventId, eventId)).all();
+  }
+
+  async getMembersByEventIds(eventIds: number[]): Promise<Member[]> {
+    if (eventIds.length === 0) return [];
+    return db.select().from(members).where(inArray(members.eventId, eventIds)).all();
   }
 
   async getMember(id: number): Promise<Member | undefined> {

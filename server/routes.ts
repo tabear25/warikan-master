@@ -171,13 +171,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/admin/events", requireAdmin, async (_req, res) => {
+    // イベント毎にメンバーを取りに行く N+1 を避け、2クエリでまとめて取得する
+    // （本番はリモートの Turso なので往復回数がそのままレイテンシになる）。
     const allEvents = await storage.getAllEvents();
-    const eventsWithMembers = await Promise.all(
-      allEvents.map(async (event) => ({
-        ...event,
-        members: await storage.getMembersByEvent(event.id),
-      })),
-    );
+    const allMembers = await storage.getMembersByEventIds(allEvents.map((event) => event.id));
+    const membersByEvent = new Map<number, typeof allMembers>();
+    for (const member of allMembers) {
+      const list = membersByEvent.get(member.eventId);
+      if (list) {
+        list.push(member);
+      } else {
+        membersByEvent.set(member.eventId, [member]);
+      }
+    }
+
+    const eventsWithMembers = allEvents.map((event) => ({
+      ...event,
+      members: membersByEvent.get(event.id) ?? [],
+    }));
 
     return res.json(eventsWithMembers);
   });
