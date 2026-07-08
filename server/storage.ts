@@ -56,6 +56,9 @@ const client = createClient({ url, authToken });
 
 export const db = drizzle(client);
 
+// テストから :memory: DB を注入できるようにするための型エイリアス。
+export type Database = typeof db;
+
 export interface IStorage {
   // Events
   createEvent(event: InsertEvent): Promise<Event>;
@@ -94,27 +97,33 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private readonly db: Database;
+
+  constructor(database: Database = db) {
+    this.db = database;
+  }
+
   // Events
   async createEvent(event: InsertEvent): Promise<Event> {
-    return db.insert(events).values(event).returning().get();
+    return this.db.insert(events).values(event).returning().get();
   }
 
   async getEvent(id: number): Promise<Event | undefined> {
-    return db.select().from(events).where(eq(events.id, id)).get();
+    return this.db.select().from(events).where(eq(events.id, id)).get();
   }
 
   async getEventByKeyword(keyword: string): Promise<Event | undefined> {
-    return db.select().from(events).where(eq(events.keyword, keyword)).get();
+    return this.db.select().from(events).where(eq(events.keyword, keyword)).get();
   }
 
   async getAllEvents(): Promise<Event[]> {
-    return db.select().from(events).all();
+    return this.db.select().from(events).all();
   }
 
   async deleteEvent(id: number): Promise<void> {
     // Cascade delete schedule items, payments and members before the event,
     // atomically so a crash mid-delete cannot leave orphaned rows.
-    await db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       await tx.delete(scheduleItems).where(eq(scheduleItems.eventId, id)).run();
       await tx.delete(payments).where(eq(payments.eventId, id)).run();
       await tx.delete(members).where(eq(members.eventId, id)).run();
@@ -123,66 +132,66 @@ export class DatabaseStorage implements IStorage {
   }
 
   async settleEvent(id: number): Promise<Event | undefined> {
-    await db.update(events).set({ isSettled: true }).where(eq(events.id, id)).run();
-    return db.select().from(events).where(eq(events.id, id)).get();
+    await this.db.update(events).set({ isSettled: true }).where(eq(events.id, id)).run();
+    return this.db.select().from(events).where(eq(events.id, id)).get();
   }
 
   async updateEventSettlementStatus(id: number, isSettled: boolean): Promise<Event | undefined> {
-    await db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
-    return db.select().from(events).where(eq(events.id, id)).get();
+    await this.db.update(events).set({ isSettled }).where(eq(events.id, id)).run();
+    return this.db.select().from(events).where(eq(events.id, id)).get();
   }
 
   async updateEventMeta(
     id: number,
     fields: Partial<Pick<InsertEvent, "type" | "startDate" | "endDate">>,
   ): Promise<Event | undefined> {
-    await db.update(events).set(fields).where(eq(events.id, id)).run();
-    return db.select().from(events).where(eq(events.id, id)).get();
+    await this.db.update(events).set(fields).where(eq(events.id, id)).run();
+    return this.db.select().from(events).where(eq(events.id, id)).get();
   }
 
   // Members
   async createMember(member: InsertMember): Promise<Member> {
-    return db.insert(members).values(member).returning().get();
+    return this.db.insert(members).values(member).returning().get();
   }
 
   async getMembersByEvent(eventId: number): Promise<Member[]> {
-    return db.select().from(members).where(eq(members.eventId, eventId)).all();
+    return this.db.select().from(members).where(eq(members.eventId, eventId)).all();
   }
 
   async getMembersByEventIds(eventIds: number[]): Promise<Member[]> {
     if (eventIds.length === 0) return [];
-    return db.select().from(members).where(inArray(members.eventId, eventIds)).all();
+    return this.db.select().from(members).where(inArray(members.eventId, eventIds)).all();
   }
 
   async getMember(id: number): Promise<Member | undefined> {
-    return db.select().from(members).where(eq(members.id, id)).get();
+    return this.db.select().from(members).where(eq(members.id, id)).get();
   }
 
   async deleteMember(id: number): Promise<void> {
-    await db.delete(members).where(eq(members.id, id)).run();
+    await this.db.delete(members).where(eq(members.id, id)).run();
   }
 
   // Payments
   async createPayment(payment: InsertPayment): Promise<Payment> {
-    return db.insert(payments).values(payment).returning().get();
+    return this.db.insert(payments).values(payment).returning().get();
   }
 
   async getPaymentsByEvent(eventId: number): Promise<Payment[]> {
-    return db.select().from(payments).where(eq(payments.eventId, eventId)).all();
+    return this.db.select().from(payments).where(eq(payments.eventId, eventId)).all();
   }
 
   async getPayment(id: number): Promise<Payment | undefined> {
-    return db.select().from(payments).where(eq(payments.id, id)).get();
+    return this.db.select().from(payments).where(eq(payments.id, id)).get();
   }
 
   async updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined> {
-    await db.update(payments).set(fields).where(eq(payments.id, id)).run();
-    return db.select().from(payments).where(eq(payments.id, id)).get();
+    await this.db.update(payments).set(fields).where(eq(payments.id, id)).run();
+    return this.db.select().from(payments).where(eq(payments.id, id)).get();
   }
 
   async deletePayment(id: number): Promise<void> {
     // スケジュール項目からの変換リンクを外してから削除する（項目は残り、再変換できる）。
-    await db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       await tx
         .update(scheduleItems)
         .set({ paymentId: null })
@@ -197,7 +206,7 @@ export class DatabaseStorage implements IStorage {
     scheduleItemId: number,
   ): Promise<Payment> {
     // 支払いの作成とスケジュール項目への逆リンクを原子的に行う。
-    return db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const created = await tx.insert(payments).values(payment).returning().get();
       await tx
         .update(scheduleItems)
@@ -225,24 +234,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getScheduleItem(id: number): Promise<ScheduleItem | undefined> {
-    return db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
+    return this.db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
   }
 
   async createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem> {
-    return db.insert(scheduleItems).values(item).returning().get();
+    return this.db.insert(scheduleItems).values(item).returning().get();
   }
 
   async updateScheduleItem(
     id: number,
     fields: Partial<InsertScheduleItem>,
   ): Promise<ScheduleItem | undefined> {
-    await db.update(scheduleItems).set(fields).where(eq(scheduleItems.id, id)).run();
-    return db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
+    await this.db.update(scheduleItems).set(fields).where(eq(scheduleItems.id, id)).run();
+    return this.db.select().from(scheduleItems).where(eq(scheduleItems.id, id)).get();
   }
 
   async deleteScheduleItem(id: number): Promise<void> {
     // 変換済み支払い側の由来リンクを外してから削除する（支払い自体は消さない）。
-    await db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       await tx
         .update(payments)
         .set({ scheduleItemId: null })

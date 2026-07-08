@@ -2,7 +2,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { storage } from "./storage";
+import { storage as defaultStorage, type IStorage } from "./storage";
 import { verifyAdminCredentials } from "./auth";
 import { calculateSettlement } from "./settlement";
 import { fetchOgpMetadata, OgpFetchError } from "./ogp";
@@ -26,6 +26,9 @@ const adminLoginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+// vitest（NODE_ENV=test）ではレート制限を無効化し、テストが 429 で落ちないようにする。
+const skipInTest = () => process.env.NODE_ENV === "test";
+
 // 管理者ログインのブルートフォース対策。失敗のみカウントし、1分あたり5回まで。
 const adminLoginLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -33,6 +36,7 @@ const adminLoginLimiter = rateLimit({
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
   message: "ログイン試行が多すぎます。しばらく待ってから再度お試しください。",
 });
 
@@ -42,6 +46,7 @@ const writeLimiter = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
   message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
 });
 
@@ -52,6 +57,7 @@ const ogpLimiter = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInTest,
   message: "リクエストが多すぎます。しばらく待ってから再度お試しください。",
 });
 
@@ -88,6 +94,7 @@ function paymentInputToFields(input: PaymentInput): Omit<InsertPayment, "eventId
 
 // payer / split 対象がすべてイベントのメンバーかを検証する。
 async function validatePaymentMembers(
+  storage: IStorage,
   eventId: number,
   input: PaymentInput,
 ): Promise<string | null> {
@@ -127,6 +134,7 @@ function scheduleInputToFields(
 
 // スケジュール項目の支払者（任意）がイベントのメンバーかを検証する。
 async function validateSchedulePayer(
+  storage: IStorage,
   eventId: number,
   payerId: number | undefined,
 ): Promise<string | null> {
@@ -138,7 +146,12 @@ async function validateSchedulePayer(
   return null;
 }
 
-export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+// storage はテストから :memory: DB を注入できるよう引数で差し替え可能にする。
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express,
+  storage: IStorage = defaultStorage,
+): Promise<Server> {
   const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
     const adminUsername = req.headers["x-admin-username"];
     const adminPassword = req.headers["x-admin-password"];
@@ -498,7 +511,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const memberError = await validatePaymentMembers(id, parsed.data);
+    const memberError = await validatePaymentMembers(storage, id, parsed.data);
     if (memberError) {
       return res.status(400).json({ error: memberError });
     }
@@ -545,7 +558,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const memberError = await validatePaymentMembers(id, parsed.data);
+    const memberError = await validatePaymentMembers(storage, id, parsed.data);
     if (memberError) {
       return res.status(400).json({ error: memberError });
     }
@@ -619,7 +632,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    const payerError = await validateSchedulePayer(storage, id, parsed.data.payerId);
     if (payerError) {
       return res.status(400).json({ error: payerError });
     }
@@ -658,7 +671,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: parsed.error.issues[0].message });
     }
 
-    const payerError = await validateSchedulePayer(id, parsed.data.payerId);
+    const payerError = await validateSchedulePayer(storage, id, parsed.data.payerId);
     if (payerError) {
       return res.status(400).json({ error: payerError });
     }
