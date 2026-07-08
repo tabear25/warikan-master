@@ -85,7 +85,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // レスポンスボディの内容（イベント名・メンバー名など）を本番のログ基盤に
+      // 残さない。開発時のみデバッグ用に付加する。
+      if (capturedJsonResponse && process.env.NODE_ENV !== "production") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -134,7 +136,9 @@ app.use((req, res, next) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // 全ルートのエラー応答は { error } 形状に統一されている — ここも合わせる
+    // （モバイルクライアントは error / message の両対応なので互換性は保たれる）。
+    return res.status(status).json({ error: message });
   });
 
   // importantly only setup vite in development and after

@@ -401,7 +401,7 @@ export async function registerRoutes(
     const parsed = z
       .object({
         keyword: z
-          .string()
+          .string({ required_error: "合言葉を入力してください" })
           .trim()
           .min(1, "合言葉を入力してください")
           .max(LIMITS.keyword, `合言葉は${LIMITS.keyword}文字以内で入力してください`),
