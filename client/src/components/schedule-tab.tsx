@@ -24,6 +24,7 @@ import { formatYen } from "@/lib/currency";
 import {
   dayNumberOf,
   formatDateHeading,
+  googleCalendarUrl,
   googleMapsUrl,
   groupScheduleByDay,
   parseScheduleMetadata,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/schedule";
 import {
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
@@ -86,6 +88,7 @@ function ScheduleItemRow({
   const badgeLabel = scheduleItemBadgeLabel(item, metadata);
   const payerName = item.payerId != null ? members.find((m) => m.id === item.payerId)?.name : undefined;
   const converted = item.paymentId != null;
+  const calendarUrl = googleCalendarUrl(item, metadata);
 
   // 折りたたみ時のサブ情報（最重要のものだけ）：移動は 出発 → 到着、それ以外は住所。
   let subline: string | null = null;
@@ -227,6 +230,18 @@ function ScheduleItemRow({
                   >
                     <MapPin className="h-3.5 w-3.5" />
                     地図
+                  </a>
+                )}
+                {calendarUrl && (
+                  <a
+                    href={calendarUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8 text-xs")}
+                    data-testid={`link-schedule-calendar-${item.id}`}
+                  >
+                    <CalendarPlus className="h-3.5 w-3.5" />
+                    カレンダーに登録
                   </a>
                 )}
               </div>

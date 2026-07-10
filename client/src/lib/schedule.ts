@@ -221,3 +221,59 @@ export function dayNumberOf(
 export function googleMapsUrl(address: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Googleカレンダー連携（予定作成ページへのリンク）
+// ---------------------------------------------------------------------------
+
+/** "YYYY-MM-DD" + "HH:mm" → Googleカレンダー用 "YYYYMMDDTHHmm00" */
+function toGoogleCalendarDateTime(dateKey: string, time: string): string {
+  return `${dateKey.replace(/-/g, "")}T${time.replace(":", "")}00`;
+}
+
+/**
+ * Googleカレンダーの予定作成ページ URL（action=TEMPLATE）を組み立てる。
+ * 開始日時が未定の予定は日時を渡せないため null を返す。
+ */
+export function googleCalendarUrl(item: ScheduleItem, metadata: ScheduleItemMetadata): string | null {
+  const startDate = dateKeyOf(item.startAt);
+  const startTime = formatTime(item.startAt);
+  if (!startDate || !startTime) return null;
+
+  const endDate = dateKeyOf(item.endAt) ?? startDate;
+  const endTime = formatTime(item.endAt);
+  let end: string;
+  if (endTime) {
+    end = toGoogleCalendarDateTime(endDate, endTime);
+  } else {
+    // 終了未定は 1 時間後を仮置き（Googleカレンダー側で変更できる）
+    const dt = new Date(`${startDate}T${startTime}`);
+    dt.setHours(dt.getHours() + 1);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    end = `${dt.getFullYear()}${pad(dt.getMonth() + 1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
+  }
+
+  const detailLines: string[] = [];
+  if (item.category === "transport" && (metadata.from || metadata.to)) {
+    detailLines.push(`${metadata.from ?? "？"} → ${metadata.to ?? "？"}`);
+  }
+  if (metadata.trainOrFlightNo) detailLines.push(`便名・列車名: ${metadata.trainOrFlightNo}`);
+  if (metadata.seat) detailLines.push(`座席: ${metadata.seat}`);
+  if (metadata.reservationNumber) detailLines.push(`予約番号: ${metadata.reservationNumber}`);
+  if (metadata.phone) detailLines.push(`電話番号: ${metadata.phone}`);
+  if (item.url) detailLines.push(item.url);
+  if (item.memo) detailLines.push(item.memo);
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: item.title,
+    dates: `${toGoogleCalendarDateTime(startDate, startTime)}/${end}`,
+    // startAt/endAt は JST ローカル前提の文字列なので、閲覧者のカレンダー設定に
+    // 依存しないようタイムゾーンを明示する
+    ctz: "Asia/Tokyo",
+  });
+  if (detailLines.length > 0) params.set("details", detailLines.join("\n"));
+  if (item.address) params.set("location", item.address);
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
