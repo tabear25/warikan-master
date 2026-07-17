@@ -21,7 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ResponsiveDialog } from "@/components/responsive-dialog";
+import { useMediaQuery, DESKTOP_QUERY } from "@/hooks/use-media-query";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -40,7 +41,7 @@ import { ScheduleTab } from "@/components/schedule-tab";
 import { cn } from "@/lib/utils";
 import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL, formatShortDate } from "@/lib/schedule";
 import {
-  PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
+  Plus, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
   Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays,
 } from "lucide-react";
@@ -221,15 +222,13 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-base">{isEdit ? "支払いを編集" : "支払いを追加"}</DialogTitle>
-          <DialogDescription className="text-sm">
-            {!isEdit && prefill ? "スケジュールの項目を割り勘として記録します" : "誰が何をいくら払ったか記録します"}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? "支払いを編集" : "支払いを追加"}
+      description={!isEdit && prefill ? "スケジュールの項目を割り勘として記録します" : "誰が何をいくら払ったか記録します"}
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           <div className="space-y-1.5">
             <Label className="text-sm">支払った人</Label>
             <Select value={payerId} onValueChange={setPayerId}>
@@ -380,8 +379,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
             {mutation.isPending ? "保存中..." : isEdit ? "更新する" : "追加する"}
           </Button>
         </form>
-      </DialogContent>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
 
@@ -412,29 +410,28 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-base">メンバーを追加</DialogTitle>
-          <DialogDescription className="text-sm">後から参加する人を追加できます</DialogDescription>
-        </DialogHeader>
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (name.trim()) mutation.mutate(name.trim()); }}
-          className="space-y-4 pt-1"
-        >
-          <Input
-            placeholder="名前"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            data-testid="input-new-member"
-            autoFocus
-          />
-          <Button type="submit" size="lg" className="w-full" disabled={mutation.isPending || !name.trim()} data-testid="button-submit-member">
-            {mutation.isPending ? "追加中..." : "追加する"}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="メンバーを追加"
+      description="後から参加する人を追加できます"
+    >
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (name.trim()) mutation.mutate(name.trim()); }}
+        className="space-y-4 pt-1"
+      >
+        <Input
+          placeholder="名前"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          data-testid="input-new-member"
+          autoFocus
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={mutation.isPending || !name.trim()} data-testid="button-submit-member">
+          {mutation.isPending ? "追加中..." : "追加する"}
+        </Button>
+      </form>
+    </ResponsiveDialog>
   );
 }
 
@@ -463,13 +460,13 @@ function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChang
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-base">イベントを共有</DialogTitle>
-          <DialogDescription className="text-sm">リンクや QR コードで仲間を招待できます</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="イベントを共有"
+      description="リンクや QR コードで仲間を招待できます"
+    >
+      <div className="space-y-4">
           {qr && (
             <div className="flex justify-center">
               {/* QR は読み取り精度のため常に白地に載せる */}
@@ -493,9 +490,8 @@ function ShareDialog({ open, onOpenChange, event }: { open: boolean; onOpenChang
               合言葉でも参加できます： <span className="font-display font-bold text-foreground">{event.keyword}</span>
             </span>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ResponsiveDialog>
   );
 }
 
@@ -547,13 +543,13 @@ function EventSettingsDialog({ open, onOpenChange, event }: { open: boolean; onO
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-base">イベント設定</DialogTitle>
-          <DialogDescription className="text-sm">イベントの種類と日程を変更できます</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="イベント設定"
+      description="イベントの種類と日程を変更できます"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           <div className="space-y-2">
             <Label className="text-sm">イベントの種類</Label>
             <RadioGroup
@@ -623,8 +619,7 @@ function EventSettingsDialog({ open, onOpenChange, event }: { open: boolean; onO
             {mutation.isPending ? "保存中..." : "保存する"}
           </Button>
         </form>
-      </DialogContent>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
 
@@ -668,6 +663,204 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
   );
 }
 
+// ---------------------------------------------------------------------------
+// 精算セクション（モバイル＝タブ内 / デスクトップ＝右カラム常時表示 で共用）
+// ---------------------------------------------------------------------------
+interface SettlementData {
+  transfers: Array<{ from: string; to: string; amount: number }>;
+  balances: Record<number, number>;
+}
+
+interface SettlementSectionProps {
+  isLoading: boolean;
+  event: Event | undefined;
+  memberList: Member[];
+  paymentCount: number;
+  totalSpent: number;
+  perPersonAvg: number;
+  maxAbsBalance: number;
+  settlement: SettlementData | undefined;
+  settlementRef: React.RefObject<HTMLDivElement>;
+  exportingImage: boolean;
+  onCopySummary: () => void;
+  onDownloadCsv: () => void;
+  onDownloadImage: () => void;
+  settlePending: boolean;
+  onSettleClick: () => void;
+}
+
+function SettlementSection({
+  isLoading,
+  event,
+  memberList,
+  paymentCount,
+  totalSpent,
+  perPersonAvg,
+  maxAbsBalance,
+  settlement,
+  settlementRef,
+  exportingImage,
+  onCopySummary,
+  onDownloadCsv,
+  onDownloadImage,
+  settlePending,
+  onSettleClick,
+}: SettlementSectionProps) {
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2].map((i) => (
+          <Card key={i}>
+            <CardContent className="pb-4 pt-4"><Skeleton className="h-5 w-full" /></CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (paymentCount === 0) {
+    return (
+      <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
+              <Wallet className="h-7 w-7" />
+            </div>
+            <p className="mb-1 text-sm font-semibold text-foreground">支払いを追加してください</p>
+            <p className="text-xs text-muted-foreground">支払いを記録すると精算結果が表示されます</p>
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div ref={settlementRef} className="space-y-4 bg-background">
+        {/* Summary stats */}
+        <motion.div
+          className="grid grid-cols-3 gap-2"
+          {...fadeUp}
+          transition={{ duration: 0.45, ease: EASE }}
+        >
+          <Card className="border-transparent bg-gradient-brand text-primary-foreground shadow-glow">
+            <CardContent className="p-3 text-center">
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider opacity-80">総支出</p>
+              <p className="money text-sm font-bold tabular-nums">{formatYen(totalSpent)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3 text-center">
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">件数</p>
+              <p className="money text-sm font-bold tabular-nums text-foreground">{paymentCount}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3 text-center">
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">1人平均</p>
+              <p className="money text-sm font-bold tabular-nums text-foreground">{formatYen(perPersonAvg)}</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Balance bars */}
+        {settlement && memberList.length > 0 && (
+          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
+            <Card>
+              <CardHeader className="pb-2 pt-4">
+                <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
+                <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3.5 pb-4">
+                {memberList.map((m) => (
+                  <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
+                ))}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Transfers */}
+        {settlement?.transfers.length === 0 ? (
+          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+            <Card className="border-positive/20 bg-positive/5">
+              <CardContent className="py-6 text-center">
+                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">精算不要！</p>
+                <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+            <Card>
+              <CardHeader className="pb-2 pt-4">
+                <CardTitle className="text-sm font-bold">送金リスト</CardTitle>
+                <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 pb-4">
+                {settlement?.transfers.map((t, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
+                    <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
+                    <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
+                    <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
+                    <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
+                    <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Export actions */}
+      <div className="grid grid-cols-3 gap-2">
+        <Button variant="outline" size="sm" onClick={onCopySummary} data-testid="button-copy-summary">
+          <ClipboardCopy className="h-4 w-4" /> コピー
+        </Button>
+        <Button variant="outline" size="sm" onClick={onDownloadCsv} data-testid="button-download-csv">
+          <FileDown className="h-4 w-4" /> CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={onDownloadImage} disabled={exportingImage} data-testid="button-download-image">
+          <ImageIcon className="h-4 w-4" /> {exportingImage ? "..." : "画像"}
+        </Button>
+      </div>
+
+      {/* Settle */}
+      {!event?.isSettled ? (
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={onSettleClick}
+          disabled={settlePending}
+          data-testid="button-settle"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {settlePending ? "精算中..." : "精算する"}
+        </Button>
+      ) : (
+        <Card className="border-positive/20 bg-positive/5">
+          <CardContent className="flex items-center gap-3 py-4">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-positive/15 text-positive">
+              <CheckCircle2 className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">精算済み</p>
+              <p className="text-xs text-muted-foreground">このイベントは精算が完了しています</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function EventPage() {
   const { id } = useParams<{ id: string }>();
   const eventId = parseInt(id ?? "0");
@@ -686,6 +879,7 @@ export default function EventPage() {
   const [keywordCopied, setKeywordCopied] = useState(false);
   const [exportingImage, setExportingImage] = useState(false);
   const settlementRef = useRef<HTMLDivElement>(null);
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const eventQuery = useQuery<Event>({
     queryKey: ["/api/events", eventId],
@@ -757,6 +951,13 @@ export default function EventPage() {
       setActiveTab("payments");
     }
   }, [activeTab, event]);
+
+  // デスクトップでは精算が右カラムに常時表示されるため、タブ選択からは外す。
+  useEffect(() => {
+    if (isDesktop && activeTab === "settlement") {
+      setActiveTab("payments");
+    }
+  }, [isDesktop, activeTab]);
 
   const getMemberName = (memberId: number) => memberList.find((m) => m.id === memberId)?.name ?? "不明";
 
@@ -857,7 +1058,7 @@ export default function EventPage() {
         }
       />
 
-      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4">
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-4 lg:max-w-5xl lg:px-6 lg:py-6">
         {/* Keyword & event-type chips */}
         {event && (
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -913,11 +1114,19 @@ export default function EventPage() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={cn("mb-4 grid w-full", isTrip ? "grid-cols-3" : "grid-cols-2")}>
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0">
+          <TabsList
+            className={cn(
+              "mb-4 grid w-full",
+              isDesktop
+                ? isTrip ? "grid-cols-2" : "hidden"
+                : isTrip ? "grid-cols-3" : "grid-cols-2",
+            )}
+          >
             <TabsTrigger value="payments" data-testid="tab-payments">
               <Receipt className="mr-1.5 h-4 w-4" />
-              {isTrip ? "支払い" : "支払い一覧"}
+              {isTrip && !isDesktop ? "支払い" : "支払い一覧"}
             </TabsTrigger>
             {isTrip && (
               <TabsTrigger value="schedule" data-testid="tab-schedule">
@@ -925,10 +1134,12 @@ export default function EventPage() {
                 旅程
               </TabsTrigger>
             )}
-            <TabsTrigger value="settlement" data-testid="tab-settlement">
-              <Wallet className="mr-1.5 h-4 w-4" />
-              {isTrip ? "精算" : "精算結果"}
-            </TabsTrigger>
+            {!isDesktop && (
+              <TabsTrigger value="settlement" data-testid="tab-settlement">
+                <Wallet className="mr-1.5 h-4 w-4" />
+                {isTrip ? "精算" : "精算結果"}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Payments Tab */}
@@ -1018,7 +1229,7 @@ export default function EventPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-primary"
+                                  className="h-8 w-8 rounded-full text-muted-foreground hover:text-primary"
                                   onClick={() => { setEditingPayment(p); setPaymentDialogOpen(true); }}
                                   data-testid={`button-edit-payment-${p.id}`}
                                   aria-label="支払いを編集"
@@ -1028,7 +1239,7 @@ export default function EventPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                                  className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
                                   onClick={() => setPaymentToDelete(p)}
                                   disabled={deletePaymentMutation.isPending}
                                   data-testid={`button-delete-payment-${p.id}`}
@@ -1100,156 +1311,70 @@ export default function EventPage() {
             </TabsContent>
           )}
 
-          {/* Settlement Tab */}
-          <TabsContent value="settlement">
-            {settlementQuery.isLoading ? (
-              <div className="space-y-3">
-                {[1, 2].map((i) => (
-                  <Card key={i}>
-                    <CardContent className="pb-4 pt-4"><Skeleton className="h-5 w-full" /></CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : paymentList.length === 0 ? (
-              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
-                      <Wallet className="h-7 w-7" />
-                    </div>
-                    <p className="mb-1 text-sm font-semibold text-foreground">支払いを追加してください</p>
-                    <p className="text-xs text-muted-foreground">支払いを記録すると精算結果が表示されます</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ) : (
-              <div className="space-y-4">
-                <div ref={settlementRef} className="space-y-4 bg-background">
-                  {/* Summary stats */}
-                  <motion.div
-                    className="grid grid-cols-3 gap-2"
-                    {...fadeUp}
-                    transition={{ duration: 0.45, ease: EASE }}
-                  >
-                    <Card className="border-transparent bg-gradient-brand text-primary-foreground shadow-glow">
-                      <CardContent className="p-3 text-center">
-                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider opacity-80">総支出</p>
-                        <p className="money text-sm font-bold tabular-nums">{formatYen(totalSpent)}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">件数</p>
-                        <p className="money text-sm font-bold tabular-nums text-foreground">{paymentList.length}</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">1人平均</p>
-                        <p className="money text-sm font-bold tabular-nums text-foreground">{formatYen(perPersonAvg)}</p>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-
-                  {/* Balance bars */}
-                  {settlement && memberList.length > 0 && (
-                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
-                      <Card>
-                        <CardHeader className="pb-2 pt-4">
-                          <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
-                          <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3.5 pb-4">
-                          {memberList.map((m) => (
-                            <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
-                          ))}
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  )}
-
-                  {/* Transfers */}
-                  {settlement?.transfers.length === 0 ? (
-                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
-                      <Card className="border-positive/20 bg-positive/5">
-                        <CardContent className="py-6 text-center">
-                          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
-                            <CheckCircle2 className="h-5 w-5" />
-                          </div>
-                          <p className="text-sm font-semibold text-foreground">精算不要！</p>
-                          <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  ) : (
-                    <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
-                      <Card>
-                        <CardHeader className="pb-2 pt-4">
-                          <CardTitle className="text-sm font-bold">送金リスト</CardTitle>
-                          <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-2 pb-4">
-                          {settlement?.transfers.map((t, i) => (
-                            <div key={i} className="flex items-center gap-2 rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
-                              <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
-                              <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                <ArrowRight className="h-3.5 w-3.5" />
-                              </span>
-                              <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
-                              <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
-                              <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  )}
-                </div>
-
-                {/* Export actions */}
-                <div className="grid grid-cols-3 gap-2">
-                  <Button variant="outline" size="sm" onClick={handleCopySummary} data-testid="button-copy-summary">
-                    <ClipboardCopy className="h-4 w-4" /> コピー
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleDownloadCsv} data-testid="button-download-csv">
-                    <FileDown className="h-4 w-4" /> CSV
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleDownloadImage} disabled={exportingImage} data-testid="button-download-image">
-                    <ImageIcon className="h-4 w-4" /> {exportingImage ? "..." : "画像"}
-                  </Button>
-                </div>
-
-                {/* Settle */}
-                {!event?.isSettled ? (
-                  <Button
-                    size="lg"
-                    className="w-full"
-                    onClick={() => setSettleConfirmOpen(true)}
-                    disabled={settleMutation.isPending}
-                    data-testid="button-settle"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {settleMutation.isPending ? "精算中..." : "精算する"}
-                  </Button>
-                ) : (
-                  <Card className="border-positive/20 bg-positive/5">
-                    <CardContent className="flex items-center gap-3 py-4">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-positive/15 text-positive">
-                        <CheckCircle2 className="h-5 w-5" />
-                      </span>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">精算済み</p>
-                        <p className="text-xs text-muted-foreground">このイベントは精算が完了しています</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            )}
-          </TabsContent>
+          {/* Settlement Tab（モバイルのみ。デスクトップでは右カラムに常時表示） */}
+          {!isDesktop && (
+            <TabsContent value="settlement">
+              <SettlementSection
+                isLoading={settlementQuery.isLoading}
+                event={event}
+                memberList={memberList}
+                paymentCount={paymentList.length}
+                totalSpent={totalSpent}
+                perPersonAvg={perPersonAvg}
+                maxAbsBalance={maxAbsBalance}
+                settlement={settlement}
+                settlementRef={settlementRef}
+                exportingImage={exportingImage}
+                onCopySummary={handleCopySummary}
+                onDownloadCsv={handleDownloadCsv}
+                onDownloadImage={handleDownloadImage}
+                settlePending={settleMutation.isPending}
+                onSettleClick={() => setSettleConfirmOpen(true)}
+              />
+            </TabsContent>
+          )}
         </Tabs>
+
+        {/* Desktop: 精算パネル（右カラム・スクロール追従） */}
+        {isDesktop && (
+          <aside className="sticky top-[84px] min-w-0">
+            <p className="mb-3 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary">
+              Settlement — 精算
+            </p>
+            <SettlementSection
+              isLoading={settlementQuery.isLoading}
+              event={event}
+              memberList={memberList}
+              paymentCount={paymentList.length}
+              totalSpent={totalSpent}
+              perPersonAvg={perPersonAvg}
+              maxAbsBalance={maxAbsBalance}
+              settlement={settlement}
+              settlementRef={settlementRef}
+              exportingImage={exportingImage}
+              onCopySummary={handleCopySummary}
+              onDownloadCsv={handleDownloadCsv}
+              onDownloadImage={handleDownloadImage}
+              settlePending={settleMutation.isPending}
+              onSettleClick={() => setSettleConfirmOpen(true)}
+            />
+          </aside>
+        )}
+        </div>
       </main>
+
+      {/* Mobile: リストが長くなっても親指で届く追加ボタン */}
+      {!isDesktop && !event?.isSettled && activeTab === "payments" && sortedPayments.length >= 4 && (
+        <Button
+          size="icon"
+          onClick={() => { setEditingPayment(null); setPaymentDialogOpen(true); }}
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-30 h-14 w-14 rounded-full shadow-glow-lg"
+          data-testid="button-add-payment-fab"
+          aria-label="支払いを追加"
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
+      )}
 
       {/* Dialogs */}
       <PaymentDialog
