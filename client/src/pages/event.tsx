@@ -3,7 +3,7 @@ import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { toPng } from "html-to-image";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -42,6 +42,8 @@ import type { Event, EventType, Member, Payment, SplitMode } from "@shared/schem
 import { EVENT_TYPES } from "@shared/schema";
 import { splitYen } from "@shared/split";
 import { formatYen, formatSignedYen } from "@/lib/currency";
+import { CountUp } from "@/components/count-up";
+import { fireConfetti } from "@/lib/confetti";
 import {
   buildSettlementCsv,
   buildSettlementText,
@@ -702,24 +704,30 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
           <MemberAvatar name={name} className="h-6 w-6 text-[10px]" />
           <span className="truncate font-medium text-foreground">{name}</span>
         </span>
-        <span className={cn("money font-bold tabular-nums", positive ? "text-positive" : "text-negative")}>
-          {formatSignedYen(balance)}
-        </span>
+        <CountUp
+          value={balance}
+          render={formatSignedYen}
+          className={cn("money font-bold tabular-nums", positive ? "text-positive" : "text-negative")}
+        />
       </div>
       <div className="relative flex h-2.5 overflow-hidden rounded-full bg-muted">
         <div className="flex w-1/2 justify-end">
           {!positive && (
-            <div
+            <motion.div
               className="h-full rounded-l-full bg-gradient-to-l from-negative/60 to-negative"
-              style={{ width: `${pct}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.6, ease: EASE }}
             />
           )}
         </div>
         <div className="flex w-1/2 justify-start">
           {positive && (
-            <div
+            <motion.div
               className="h-full rounded-r-full bg-gradient-to-r from-positive/60 to-positive"
-              style={{ width: `${pct}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.6, ease: EASE }}
             />
           )}
         </div>
@@ -812,19 +820,19 @@ function SettlementSection({
           <Card className="border-transparent bg-gradient-brand text-primary-foreground shadow-glow">
             <CardContent className="p-3 text-center">
               <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider opacity-80">総支出</p>
-              <p className="money text-sm font-bold tabular-nums">{formatYen(totalSpent)}</p>
+              <p className="money text-sm font-bold tabular-nums"><CountUp value={totalSpent} render={formatYen} /></p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">件数</p>
-              <p className="money text-sm font-bold tabular-nums text-foreground">{paymentCount}</p>
+              <p className="money text-sm font-bold tabular-nums text-foreground"><CountUp value={paymentCount} /></p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">1人平均</p>
-              <p className="money text-sm font-bold tabular-nums text-foreground">{formatYen(perPersonAvg)}</p>
+              <p className="money text-sm font-bold tabular-nums text-foreground"><CountUp value={perPersonAvg} render={formatYen} /></p>
             </CardContent>
           </Card>
         </motion.div>
@@ -1004,7 +1012,8 @@ export default function EventPage() {
     mutationFn: async () => (await apiRequest("POST", `/api/events/${eventId}/settle`)).json(),
     onSuccess: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId] });
-      toast({ title: "精算が完了しました！", description: "このイベントは精算済みになりました" });
+      fireConfetti();
+      toast({ title: "精算が完了しました🎉", description: "おつかれさまでした。このイベントは精算済みになりました" });
     },
     onError: (err: Error) => {
       toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
@@ -1241,7 +1250,7 @@ export default function EventPage() {
             {paymentList.length > 0 && (
               <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
                 <span>支払い {paymentList.length} 件</span>
-                <span>合計 <span className="money font-bold text-foreground tabular-nums">{formatYen(totalSpent)}</span></span>
+                <span>合計 <CountUp value={totalSpent} render={formatYen} className="money font-bold text-foreground tabular-nums" /></span>
               </div>
             )}
 
@@ -1270,6 +1279,7 @@ export default function EventPage() {
               </motion.div>
             ) : (
               <div className="space-y-2">
+                <AnimatePresence>
                 {sortedPayments.map((p, index) => {
                   const splitIds: number[] = JSON.parse(p.splitMemberIds);
                   const isAllMembers = splitIds.length === memberList.length;
@@ -1278,7 +1288,9 @@ export default function EventPage() {
                   return (
                     <motion.div
                       key={p.id}
+                      layout
                       {...fadeUp}
+                      exit={{ opacity: 0, y: -8, transition: { duration: 0.18 } }}
                       transition={{ duration: 0.4, ease: EASE, delay: Math.min(index, 8) * 0.045 }}
                     >
                       <Card data-testid={`card-payment-${p.id}`} className="hover:shadow-md">
@@ -1334,6 +1346,7 @@ export default function EventPage() {
                     </motion.div>
                   );
                 })}
+                </AnimatePresence>
               </div>
             )}
 
