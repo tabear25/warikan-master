@@ -25,13 +25,6 @@ import { ResponsiveDialog } from "@/components/responsive-dialog";
 import { useMediaQuery, DESKTOP_QUERY } from "@/hooks/use-media-query";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
@@ -131,6 +124,9 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
     }
   }, [open, payment, prefill, members]);
 
+  const paymentsKey = ["/api/events", eventId, "payments"];
+
+  // 楽観更新：ダイアログを閉じて一覧へ即時反映し、失敗した場合のみ巻き戻す
   const mutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const url = isEdit
@@ -139,18 +135,47 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
       const res = await apiRequest(isEdit ? "PATCH" : "POST", url, data);
       return res.json();
     },
-    onSuccess: () => {
-      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
+    onMutate: async (data) => {
+      await queryClientHook.cancelQueries({ queryKey: paymentsKey });
+      const prev = queryClientHook.getQueryData<Payment[]>(paymentsKey);
+      const optimistic: Payment = {
+        id: payment?.id ?? -Date.now(),
+        eventId,
+        payerId: data.payerId as number,
+        amount: data.amount as number,
+        description: data.description as string,
+        splitMemberIds: JSON.stringify(data.splitMemberIds),
+        splitMode: data.splitMode as string,
+        splitDetails: data.weights
+          ? JSON.stringify(data.weights)
+          : data.amounts
+            ? JSON.stringify(data.amounts)
+            : null,
+        scheduleItemId: (data.scheduleItemId as number | undefined) ?? payment?.scheduleItemId ?? null,
+        createdAt: payment?.createdAt ?? new Date().toISOString(),
+      };
+      queryClientHook.setQueryData<Payment[]>(paymentsKey, (old = []) =>
+        isEdit ? old.map((p) => (p.id === payment!.id ? optimistic : p)) : [...old, optimistic],
+      );
+      onOpenChange(false);
+      toast({ title: isEdit ? "支払いを更新しました" : "支払いを追加しました" });
+      return { prev };
+    },
+    onError: (err: Error, _data, ctx) => {
+      if (ctx?.prev) queryClientHook.setQueryData(paymentsKey, ctx.prev);
+      toast({
+        title: "保存できませんでした（元に戻しました）",
+        description: err.message.replace(/^\d+: /, ""),
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClientHook.invalidateQueries({ queryKey: paymentsKey });
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
       if (prefill) {
         // 変換済みバッジ（paymentId リンク）を反映する
         queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "schedule"] });
       }
-      toast({ title: isEdit ? "支払いを更新しました" : "支払いを追加しました" });
-      onOpenChange(false);
-    },
-    onError: (err: Error) => {
-      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
     },
   });
 
@@ -229,20 +254,32 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
       description={!isEdit && prefill ? "スケジュールの項目を割り勘として記録します" : "誰が何をいくら払ったか記録します"}
     >
       <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-sm">支払った人</Label>
-            <Select value={payerId} onValueChange={setPayerId}>
-              <SelectTrigger data-testid="select-payer">
-                <SelectValue placeholder="選択してください" />
-              </SelectTrigger>
-              <SelectContent>
-                {members.map((m) => (
-                  <SelectItem key={m.id} value={String(m.id)} data-testid={`option-payer-${m.id}`}>
+            <div className="flex flex-wrap gap-1.5" data-testid="select-payer" role="radiogroup" aria-label="支払った人">
+              {members.map((m) => {
+                const active = payerId === String(m.id);
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => setPayerId(String(m.id))}
+                    className={cn(
+                      "inline-flex min-h-9 items-center gap-1.5 rounded-full border py-1 pl-1.5 pr-3 text-xs font-semibold transition-all duration-150",
+                      active
+                        ? "border-primary bg-primary/10 text-primary shadow-xs"
+                        : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+                    )}
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={`option-payer-${m.id}`}
+                  >
+                    <MemberAvatar name={m.name} className="h-6 w-6 text-[10px]" />
                     {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -306,7 +343,19 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
 
           {/* 割り勘対象 */}
           <div className="space-y-2">
-            <Label className="text-sm">割り勘する人</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">割り勘する人</Label>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedIds(selectedIds.length === members.length ? [] : members.map((m) => m.id))
+                }
+                className="text-xs font-semibold text-primary underline-offset-4 hover:underline"
+                data-testid="button-toggle-all-members"
+              >
+                {selectedIds.length === members.length ? "全員をはずす" : "全員を選ぶ"}
+              </button>
+            </div>
             <div className="space-y-1">
               {members.map((m) => {
                 const checked = selectedIds.includes(m.id);
@@ -393,19 +442,36 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
 
   useEffect(() => { if (open) setName(""); }, [open]);
 
+  const membersKey = ["/api/events", eventId, "members"];
+
+  // 楽観更新：メンバーは即座にチップへ現れ、失敗した場合のみ巻き戻す
   const mutation = useMutation({
     mutationFn: async (memberName: string) => {
       const res = await apiRequest("POST", `/api/events/${eventId}/members`, { name: memberName });
       return res.json();
     },
-    onSuccess: () => {
-      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] });
-      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
-      toast({ title: "メンバーを追加しました" });
+    onMutate: async (memberName) => {
+      await queryClientHook.cancelQueries({ queryKey: membersKey });
+      const prev = queryClientHook.getQueryData<Member[]>(membersKey);
+      queryClientHook.setQueryData<Member[]>(membersKey, (old = []) => [
+        ...old,
+        { id: -Date.now(), eventId, name: memberName },
+      ]);
       onOpenChange(false);
+      toast({ title: "メンバーを追加しました" });
+      return { prev };
     },
-    onError: (err: Error) => {
-      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    onError: (err: Error, _name, ctx) => {
+      if (ctx?.prev) queryClientHook.setQueryData(membersKey, ctx.prev);
+      toast({
+        title: "追加できませんでした（元に戻しました）",
+        description: err.message.replace(/^\d+: /, ""),
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClientHook.invalidateQueries({ queryKey: membersKey });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
     },
   });
 
@@ -905,19 +971,32 @@ export default function EventPage() {
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
+  // 楽観更新：一覧から即座に消し、失敗した場合のみ巻き戻す
   const deletePaymentMutation = useMutation({
     mutationFn: async (paymentId: number) => {
       await apiRequest("DELETE", `/api/events/${eventId}/payments/${paymentId}`);
     },
-    onSuccess: () => {
+    onMutate: async (paymentId) => {
+      const paymentsKey = ["/api/events", eventId, "payments"];
+      await queryClientHook.cancelQueries({ queryKey: paymentsKey });
+      const prev = queryClientHook.getQueryData<Payment[]>(paymentsKey);
+      queryClientHook.setQueryData<Payment[]>(paymentsKey, (old = []) => old.filter((p) => p.id !== paymentId));
+      toast({ title: "支払いを削除しました" });
+      return { prev };
+    },
+    onError: (err: Error, _id, ctx) => {
+      if (ctx?.prev) queryClientHook.setQueryData(["/api/events", eventId, "payments"], ctx.prev);
+      toast({
+        title: "削除できませんでした（元に戻しました）",
+        description: err.message.replace(/^\d+: /, ""),
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
       // スケジュール由来の支払いを消した場合、項目側の「追加済み」を解除表示する
       queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "schedule"] });
-      toast({ title: "支払いを削除しました" });
-    },
-    onError: (err: Error) => {
-      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
     },
   });
 
