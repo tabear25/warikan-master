@@ -133,8 +133,9 @@ export default function CreateEvent() {
       />
 
       <main className="flex-1 px-4 py-6">
-        <div className="mx-auto max-w-lg space-y-4">
+        <div className="mx-auto max-w-lg space-y-4 lg:max-w-3xl">
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 lg:space-y-0">
             {/* Event Info Card */}
             <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE }}>
               <Card className="rounded-3xl">
@@ -302,9 +303,10 @@ export default function CreateEvent() {
                 </CardContent>
               </Card>
             </motion.div>
+            </div>
 
             {/* Submit */}
-            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
+            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }} className="lg:mx-auto lg:max-w-md">
               <Button
                 type="submit"
                 className="w-full"

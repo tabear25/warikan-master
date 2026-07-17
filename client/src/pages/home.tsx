@@ -82,7 +82,7 @@ export default function Home() {
 
       {/* Main */}
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-10">
-        <div className="w-full max-w-lg space-y-4">
+        <div className="w-full max-w-lg space-y-4 lg:max-w-3xl">
           {/* Hero */}
           <motion.div
             className="mb-10 text-center"
@@ -113,9 +113,10 @@ export default function Home() {
             </div>
           </motion.div>
 
-          {/* Join Card */}
-          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.1 }}>
-            <Card data-testid="card-join" className="rounded-3xl shadow-lg">
+          {/* Join / Create Cards — PC では横並び */}
+          <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-stretch lg:gap-5 lg:space-y-0">
+          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.1 }} className="lg:h-full">
+            <Card data-testid="card-join" className="rounded-3xl shadow-lg lg:h-full">
               <CardHeader className="pb-3">
                 <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <KeyRound className="h-5 w-5" />
@@ -158,8 +159,8 @@ export default function Home() {
           </motion.div>
 
           {/* Create Card */}
-          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.18 }}>
-            <Card data-testid="card-create" className="rounded-3xl">
+          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.18 }} className="lg:h-full">
+            <Card data-testid="card-create" className="rounded-3xl lg:h-full">
               <CardHeader className="pb-3">
                 <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
                   <PlusCircle className="h-5 w-5" />
@@ -183,6 +184,7 @@ export default function Home() {
               </CardContent>
             </Card>
           </motion.div>
+          </div>
 
           {/* Admin link */}
           <motion.div

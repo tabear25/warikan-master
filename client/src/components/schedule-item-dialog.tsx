@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ResponsiveDialog } from "@/components/responsive-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -285,15 +279,13 @@ export function ScheduleItemDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-base">{isEdit ? "予定を編集" : "予定を追加"}</DialogTitle>
-          <DialogDescription className="text-sm">
-            宿泊・移動・観光などの予定をみんなで共有できます
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? "予定を編集" : "予定を追加"}
+      description="宿泊・移動・観光などの予定をみんなで共有できます"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           {/* カテゴリ */}
           <div className="space-y-2">
             <Label className="text-sm">カテゴリ</Label>
@@ -623,7 +615,6 @@ export function ScheduleItemDialog({
             {mutation.isPending ? "保存中..." : isEdit ? "更新する" : "追加する"}
           </Button>
         </form>
-      </DialogContent>
-    </Dialog>
+    </ResponsiveDialog>
   );
 }
