@@ -154,6 +154,9 @@ font-feature-settings: "palt" 1;   /* プロポーショナル字詰めを全域
 | コンポーネント | 役割 |
 |----------------|------|
 | `AppHeader` | ガラス質スティッキーヘッダー。戻る・タイトル・アクション・テーマ切替を一元管理（testid もここで固定） |
+| `ResponsiveDialog` | 入力・共有系ダイアログの共通シェル。**モバイル（md 未満）はボトムシート（vaul）**、md 以上はセンターモーダル。新しいダイアログは必ずこれを使う |
+| `CountUp` | 金額・件数の変化をカウントアップ表示（`render` に formatYen 等を渡す）。reduced-motion では即時表示 |
+| `fireConfetti()` | `lib/confetti.ts`。依存なしの canvas 紙吹雪。**精算完了など「祝う」瞬間限定**で乱用しない |
 | `WaricanLogo` / `LogoTile` | ¥ 分割モチーフのロゴ。タイルはグラデ + グロー + rounded-[28%] |
 | `MemberAvatar` | 名前ハッシュで 8 種のグラデーションから決定的に配色されるイニシャルアバター |
 | `Aurora` | `fixed inset-0 -z-10` のオーロラ光球（親に `relative isolate` が必要） |
@@ -164,7 +167,10 @@ font-feature-settings: "palt" 1;   /* プロポーショナル字詰めを全域
 
 ## 5. Layout Principles
 
-- コンテンツ幅: 通常 `max-w-lg`、管理画面のみ `max-w-3xl`。左右 padding は `px-4`
+- **モバイルファースト + lg（1024px）でワイド適応**。ブレークポイントの JS 判定は `useMediaQuery`（`DESKTOP_QUERY` / `SHEET_QUERY`）で行う
+- コンテンツ幅: モバイル `max-w-lg`。lg 以上ではページごとに拡張 — ホーム/作成 `lg:max-w-3xl`（カード2列）、イベント `lg:max-w-5xl`、管理画面 `max-w-3xl`。左右 padding は `px-4`
+- **イベント画面は lg 以上で2カラム**: 左=支払い/旅程タブ（`minmax(0,1fr)`）、右=精算パネル 400px（`sticky top-[84px]` 常時表示、精算タブは非表示）
+- モバイルの支払い一覧が4件以上のとき、右下に追加 FAB（`fixed` + safe-area offset）を出す
 - ページルート: `relative isolate flex min-h-screen flex-col bg-background` + 最初の子に `<Aurora />`
 - 縦リズム: セクション間 `space-y-4`、カード内 `space-y-3〜4`
 - 角丸スケール: sm 8 / md 12 / lg 16 / xl 20 / 2xl 24 / 3xl 32px（Tailwind `borderRadius` を再定義）
@@ -192,6 +198,10 @@ font-feature-settings: "palt" 1;   /* プロポーショナル字詰めを全域
 - イージング: `--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)`（標準）/ `--ease-spring`（遊び）
 - 入場: framer-motion で `opacity 0→1, y 16→0`、`duration 0.45–0.6s`、リストは 0.05s 前後のスタガー
 - 押下: ボタン `active:scale-[0.97]`（200ms）
+- 数値: 金額・件数の変化は `CountUp`（0.6s, ease-out-expo）。収支バーは幅を 0→pct% にアニメーション
+- リスト増減: 支払いリストは `AnimatePresence` + `layout`、退場は `opacity 0 / y -8`（0.18s）
+- 祝祭: 精算完了時のみ `fireConfetti()`。reduced-motion では発火しない
+- **体感速度は楽観更新で作る**: 支払い・メンバーの追加/編集/削除は onMutate でキャッシュへ即時反映し、失敗時のみ巻き戻して destructive トーストで知らせる
 - スケルトン: シマー（`animate-shimmer`、muted→accent の流れるグラデ）
 - 背景: `animate-aurora`（18s）/ `animate-aurora-slow`（26s 逆再生）
 - `prefers-reduced-motion: reduce` で全アニメーションをほぼ無効化（CSS + MotionConfig の両方）
