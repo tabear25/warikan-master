@@ -16,8 +16,8 @@ interface Particle {
   opacity: number;
 }
 
-// ブランドのエメラルド〜ティールにチャート系のアンバー・コーラルを添える
-const COLORS = ["#0d9668", "#14b8a6", "#2dd4bf", "#67e8f9", "#fbbf24", "#fb7185"];
+// iOS システムカラー（blue / green / orange / pink / purple / cyan）
+const COLORS = ["#0A84FF", "#30D158", "#FF9F0A", "#FF375F", "#BF5AF2", "#64D2FF"];
 
 export function fireConfetti(durationMs = 1800): void {
   if (typeof window === "undefined") return;

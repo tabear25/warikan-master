@@ -22,7 +22,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { AppHeader } from "@/components/app-header";
-import { Aurora } from "@/components/aurora";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
   Calendar,
@@ -38,12 +37,7 @@ import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL } from "@/lib/schedule";
 import type { Event, EventType, Member } from "@shared/schema";
 import { EVENT_TYPES } from "@shared/schema";
 
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, fadeUp } from "@/lib/motion";
 
 interface AdminCredentials {
   username: string;
@@ -267,7 +261,6 @@ export default function AdminPage() {
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
-      <Aurora />
 
       <AppHeader
         backHref="/"
@@ -292,10 +285,10 @@ export default function AdminPage() {
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
         {!adminCreds ? (
           <div className="flex flex-col items-center justify-center pt-8">
-            <motion.div className="w-full max-w-sm" {...fadeUp} transition={{ duration: 0.5, ease: EASE }}>
+            <motion.div className="w-full max-w-sm" {...fadeUp} transition={SPRING}>
               <Card className="rounded-3xl shadow-lg">
                 <CardHeader className="pb-4 text-center">
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand text-primary-foreground shadow-glow">
+                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
                     <ShieldCheck className="h-7 w-7" />
                   </div>
                   <CardTitle className="text-base">管理画面ログイン</CardTitle>
@@ -351,7 +344,7 @@ export default function AdminPage() {
             <motion.div
               className="flex items-center gap-2 text-sm text-muted-foreground"
               {...fadeUp}
-              transition={{ duration: 0.45, ease: EASE }}
+              transition={SPRING}
             >
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <ShieldCheck className="h-3.5 w-3.5" />
@@ -361,7 +354,7 @@ export default function AdminPage() {
               </span>
             </motion.div>
 
-            <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
+            <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.06 }}>
               <Card className="rounded-3xl">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">イベント管理</CardTitle>

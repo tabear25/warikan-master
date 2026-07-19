@@ -28,7 +28,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
-import { Aurora } from "@/components/aurora";
 import { MemberAvatar } from "@/components/member-avatar";
 import { ScheduleTab } from "@/components/schedule-tab";
 import { cn } from "@/lib/utils";
@@ -53,12 +52,7 @@ import {
   safeFileName,
 } from "@/lib/export";
 
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, SPRING_SLOW, fadeUp, stagger } from "@/lib/motion";
 
 const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   equal: "均等",
@@ -717,7 +711,7 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
               className="h-full rounded-l-full bg-gradient-to-l from-negative/60 to-negative"
               initial={{ width: 0 }}
               animate={{ width: `${pct}%` }}
-              transition={{ duration: 0.6, ease: EASE }}
+              transition={SPRING_SLOW}
             />
           )}
         </div>
@@ -727,7 +721,7 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
               className="h-full rounded-r-full bg-gradient-to-r from-positive/60 to-positive"
               initial={{ width: 0 }}
               animate={{ width: `${pct}%` }}
-              transition={{ duration: 0.6, ease: EASE }}
+              transition={SPRING_SLOW}
             />
           )}
         </div>
@@ -794,7 +788,7 @@ function SettlementSection({
 
   if (paymentCount === 0) {
     return (
-      <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+      <motion.div {...fadeUp} transition={SPRING}>
         <Card>
           <CardContent className="py-12 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
@@ -815,9 +809,9 @@ function SettlementSection({
         <motion.div
           className="grid grid-cols-3 gap-2"
           {...fadeUp}
-          transition={{ duration: 0.45, ease: EASE }}
+          transition={SPRING}
         >
-          <Card className="border-transparent bg-gradient-brand text-primary-foreground shadow-glow">
+          <Card className="border-transparent bg-primary text-primary-foreground shadow-md">
             <CardContent className="p-3 text-center">
               <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider opacity-80">総支出</p>
               <p className="money text-sm font-bold tabular-nums"><CountUp value={totalSpent} render={formatYen} /></p>
@@ -839,7 +833,7 @@ function SettlementSection({
 
         {/* Balance bars */}
         {settlement && memberList.length > 0 && (
-          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.06 }}>
+          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.06 }}>
             <Card>
               <CardHeader className="pb-2 pt-4">
                 <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
@@ -856,7 +850,7 @@ function SettlementSection({
 
         {/* Transfers */}
         {settlement?.transfers.length === 0 ? (
-          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
             <Card className="border-positive/20 bg-positive/5">
               <CardContent className="py-6 text-center">
                 <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
@@ -868,7 +862,7 @@ function SettlementSection({
             </Card>
           </motion.div>
         ) : (
-          <motion.div {...fadeUp} transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
             <Card>
               <CardHeader className="pb-2 pt-4">
                 <CardTitle className="text-sm font-bold">送金リスト</CardTitle>
@@ -1103,7 +1097,6 @@ export default function EventPage() {
   if (isNaN(eventId) || eventId <= 0) {
     return (
       <div className="relative isolate flex min-h-screen items-center justify-center bg-background px-4">
-        <Aurora />
         <Card className="w-full max-w-sm rounded-3xl text-center">
           <CardContent className="pb-6 pt-8">
             <p className="mb-4 text-sm text-muted-foreground">無効なイベントIDです</p>
@@ -1116,7 +1109,6 @@ export default function EventPage() {
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
-      <Aurora />
 
       <AppHeader
         backHref="/"
@@ -1233,7 +1225,7 @@ export default function EventPage() {
           {/* Payments Tab */}
           <TabsContent value="payments">
             {!event?.isSettled && (
-              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+              <motion.div {...fadeUp} transition={SPRING}>
                 <Button
                   size="lg"
                   className="mb-4 w-full"
@@ -1266,7 +1258,7 @@ export default function EventPage() {
                 ))}
               </div>
             ) : paymentList.length === 0 ? (
-              <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE, delay: 0.05 }}>
+              <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.05 }}>
                 <Card>
                   <CardContent className="py-12 text-center">
                     <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
@@ -1290,8 +1282,7 @@ export default function EventPage() {
                       key={p.id}
                       layout
                       {...fadeUp}
-                      exit={{ opacity: 0, y: -8, transition: { duration: 0.18 } }}
-                      transition={{ duration: 0.4, ease: EASE, delay: Math.min(index, 8) * 0.045 }}
+                      transition={{ ...SPRING, delay: stagger(index, 0.045) }}
                     >
                       <Card data-testid={`card-payment-${p.id}`} className="hover:shadow-md">
                         <CardContent className="flex items-center gap-3 p-4">
@@ -1460,7 +1451,7 @@ export default function EventPage() {
         <Button
           size="icon"
           onClick={() => { setEditingPayment(null); setPaymentDialogOpen(true); }}
-          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-30 h-14 w-14 rounded-full shadow-glow-lg"
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-30 h-14 w-14 rounded-full shadow-lg"
           data-testid="button-add-payment-fab"
           aria-label="支払いを追加"
         >

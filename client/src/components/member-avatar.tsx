@@ -1,14 +1,14 @@
 import { cn } from "@/lib/utils";
 
-/** 名前から決定的に選ばれる、ブランドに調和したグラデーションのペア */
+/** 名前から決定的に選ばれる配色。iOS のシステムカラー系統のグラデーションペア */
 const AVATAR_GRADIENTS = [
-  "from-emerald-500 to-teal-600",
-  "from-teal-500 to-cyan-600",
+  "from-blue-500 to-indigo-600",
   "from-sky-500 to-blue-600",
+  "from-teal-500 to-cyan-600",
   "from-violet-500 to-purple-600",
   "from-rose-400 to-pink-600",
   "from-amber-400 to-orange-500",
-  "from-lime-500 to-green-600",
+  "from-green-500 to-emerald-600",
   "from-cyan-500 to-sky-600",
 ] as const;
 

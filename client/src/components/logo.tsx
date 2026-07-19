@@ -25,14 +25,14 @@ export function WaricanLogo({ className = "" }: { className?: string }) {
 }
 
 /**
- * ブランドグラデーションのタイルに白抜きロゴを載せたアプリアイコン風の表示。
+ * ブランドカラーのタイルに白抜きロゴを載せたアプリアイコン風の表示。
  * ヒーローやログイン画面のアイキャッチに使う。
  */
 export function LogoTile({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex items-center justify-center rounded-[28%] bg-gradient-brand text-primary-foreground shadow-glow",
+        "flex items-center justify-center rounded-[28%] bg-primary text-primary-foreground shadow-md",
         className,
       )}
     >

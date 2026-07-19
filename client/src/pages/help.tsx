@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/app-header";
-import { Aurora } from "@/components/aurora";
 import { useTheme } from "@/components/theme-provider";
 import {
   ArrowRight,
@@ -27,12 +26,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, SPRING_SLOW, fadeUp, stagger } from "@/lib/motion";
 
 // ---------------------------------------------------------------------------
 // クイックスタート（3ステップ）
@@ -245,7 +239,6 @@ export default function Help() {
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
-      <Aurora />
 
       <AppHeader
         backHref="/"
@@ -259,9 +252,9 @@ export default function Help() {
           <motion.div
             className="text-center"
             {...fadeUp}
-            transition={{ duration: 0.55, ease: EASE }}
+            transition={SPRING_SLOW}
           >
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[28%] bg-gradient-brand text-primary-foreground shadow-glow">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[28%] bg-primary text-primary-foreground shadow-md">
               <HelpCircle className="h-8 w-8" />
             </div>
             <p className="mb-2 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary">
@@ -279,7 +272,7 @@ export default function Help() {
               id="quick-start-heading"
               className="mb-3 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary"
               {...fadeUp}
-              transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
+              transition={{ ...SPRING, delay: 0.05 }}
             >
               Quick start — 3ステップではじめる
             </motion.p>
@@ -288,7 +281,7 @@ export default function Help() {
                 <motion.div
                   key={title}
                   {...fadeUp}
-                  transition={{ duration: 0.5, ease: EASE, delay: 0.1 + i * 0.07 }}
+                  transition={{ ...SPRING, delay: 0.1 + stagger(i, 0.07) }}
                 >
                   <Card data-testid={`card-step-${i + 1}`} className="h-full">
                     <CardContent className="p-5">
@@ -312,7 +305,7 @@ export default function Help() {
             <motion.div
               className="mt-4 text-center"
               {...fadeUp}
-              transition={{ duration: 0.5, ease: EASE, delay: 0.3 }}
+              transition={{ ...SPRING, delay: 0.3 }}
             >
               <Link href="/create">
                 <Button size="lg" data-testid="button-help-create">
@@ -325,7 +318,7 @@ export default function Help() {
 
           {/* FAQ */}
           <section aria-labelledby="faq-heading" className="mx-auto w-full max-w-lg lg:max-w-2xl">
-            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE, delay: 0.15 }}>
+            <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.15 }}>
               <p
                 id="faq-heading"
                 className="mb-3 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary"
@@ -363,7 +356,7 @@ export default function Help() {
                     <motion.div
                       key={cat.id}
                       {...fadeUp}
-                      transition={{ duration: 0.45, ease: EASE, delay: 0.05 + ci * 0.05 }}
+                      transition={{ ...SPRING, delay: 0.05 + stagger(ci) }}
                     >
                       <div className="mb-1.5 flex items-center gap-1.5 px-1">
                         <CatIcon className="h-3.5 w-3.5 text-primary" />

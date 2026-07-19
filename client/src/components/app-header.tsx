@@ -24,7 +24,9 @@ export function AppHeader({ backHref, title, actions, width = "lg" }: AppHeaderP
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="glass sticky top-0 z-20 border-b border-border/60">
+    // 実線ボーダーではなくスクロールエッジで、コンテンツがガラスの下を
+    // 通り抜けていく感覚を保つ
+    <header className="glass scroll-edge-b sticky top-0 z-20">
       <div
         className={cn(
           "mx-auto flex items-center justify-between gap-3 px-4 py-3",
@@ -35,7 +37,7 @@ export function AppHeader({ backHref, title, actions, width = "lg" }: AppHeaderP
           {backHref && (
             <Link href={backHref}>
               <button
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] duration-200 hover:bg-accent hover:text-foreground active:scale-95 active:duration-100"
                 data-testid="button-back"
                 aria-label="戻る"
               >

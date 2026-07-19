@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
-import { Aurora } from "@/components/aurora";
 import { MemberAvatar } from "@/components/member-avatar";
 import { cn } from "@/lib/utils";
 import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL } from "@/lib/schedule";
@@ -18,12 +17,7 @@ import { Plus, Trash2, ChevronRight } from "lucide-react";
 import type { Event, EventType, Member } from "@shared/schema";
 import { EVENT_TYPES, LIMITS } from "@shared/schema";
 
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, fadeUp } from "@/lib/motion";
 
 export default function CreateEvent() {
   const [, setLocation] = useLocation();
@@ -125,7 +119,6 @@ export default function CreateEvent() {
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
-      <Aurora />
 
       <AppHeader
         backHref="/"
@@ -137,7 +130,7 @@ export default function CreateEvent() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 lg:space-y-0">
             {/* Event Info Card */}
-            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE }}>
+            <motion.div {...fadeUp} transition={SPRING}>
               <Card className="rounded-3xl">
                 <CardHeader className="pb-3">
                   <p className="font-display text-xs font-bold uppercase tracking-[0.25em] text-primary">
@@ -250,7 +243,7 @@ export default function CreateEvent() {
             </motion.div>
 
             {/* Members Card */}
-            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}>
+            <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.08 }}>
               <Card className="rounded-3xl">
                 <CardHeader className="pb-3">
                   <p className="font-display text-xs font-bold uppercase tracking-[0.25em] text-primary">
@@ -306,7 +299,7 @@ export default function CreateEvent() {
             </div>
 
             {/* Submit */}
-            <motion.div {...fadeUp} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }} className="lg:mx-auto lg:max-w-md">
+            <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.16 }} className="lg:mx-auto lg:max-w-md">
               <Button
                 type="submit"
                 className="w-full"

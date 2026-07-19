@@ -44,13 +44,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Event, Member, ScheduleItem } from "@shared/schema";
-
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, fadeUp, stagger } from "@/lib/motion";
 
 // ---------------------------------------------------------------------------
 // タイムラインの 1 行（レール + カード）。タップで詳細を展開する。
@@ -121,7 +115,7 @@ function ScheduleItemRow({
   return (
     <motion.div
       {...fadeUp}
-      transition={{ duration: 0.4, ease: EASE, delay: Math.min(index, 8) * 0.04 }}
+      transition={{ ...SPRING, delay: stagger(index, 0.04) }}
       className="flex gap-3 pb-3"
     >
       {/* タイムラインのレール */}
@@ -370,7 +364,7 @@ export function ScheduleTab({ eventId, event, members, onConvert, onShowPayments
 
   return (
     <>
-      <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE }}>
+      <motion.div {...fadeUp} transition={SPRING}>
         <Button
           size="lg"
           className="mb-4 w-full"
@@ -405,7 +399,7 @@ export function ScheduleTab({ eventId, event, members, onConvert, onShowPayments
           ))}
         </div>
       ) : items.length === 0 ? (
-        <motion.div {...fadeUp} transition={{ duration: 0.4, ease: EASE, delay: 0.05 }}>
+        <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.05 }}>
           <Card>
             <CardContent className="py-12 text-center">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">

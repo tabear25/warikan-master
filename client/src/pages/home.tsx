@@ -9,17 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
-import { Aurora } from "@/components/aurora";
 import { LogoTile } from "@/components/logo";
 import { ArrowRight, Coins, HelpCircle, KeyRound, PlusCircle, QrCode, Users } from "lucide-react";
 import type { Event, Member } from "@shared/schema";
-
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0 },
-};
+import { SPRING, SPRING_SLOW, fadeUp } from "@/lib/motion";
 
 const FEATURES = [
   { icon: KeyRound, label: "合言葉だけで参加" },
@@ -57,7 +50,6 @@ export default function Home() {
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
-      <Aurora />
 
       <AppHeader
         title={
@@ -87,7 +79,7 @@ export default function Home() {
           <motion.div
             className="mb-10 text-center"
             {...fadeUp}
-            transition={{ duration: 0.6, ease: EASE }}
+            transition={SPRING_SLOW}
           >
             <LogoTile className="mx-auto mb-6 h-20 w-20" />
             <p className="mb-3 font-display text-[11px] font-semibold uppercase tracking-[0.3em] text-primary">
@@ -115,7 +107,7 @@ export default function Home() {
 
           {/* Join / Create Cards — PC では横並び */}
           <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-stretch lg:gap-5 lg:space-y-0">
-          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.1 }} className="lg:h-full">
+          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.1 }} className="lg:h-full">
             <Card data-testid="card-join" className="rounded-3xl shadow-lg lg:h-full">
               <CardHeader className="pb-3">
                 <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -159,7 +151,7 @@ export default function Home() {
           </motion.div>
 
           {/* Create Card */}
-          <motion.div {...fadeUp} transition={{ duration: 0.55, ease: EASE, delay: 0.18 }} className="lg:h-full">
+          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.18 }} className="lg:h-full">
             <Card data-testid="card-create" className="rounded-3xl lg:h-full">
               <CardHeader className="pb-3">
                 <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
@@ -190,7 +182,7 @@ export default function Home() {
           <motion.div
             className="pt-2 text-center"
             {...fadeUp}
-            transition={{ duration: 0.55, ease: EASE, delay: 0.26 }}
+            transition={{ ...SPRING, delay: 0.26 }}
           >
             <button
               onClick={() => setLocation("/admin")}

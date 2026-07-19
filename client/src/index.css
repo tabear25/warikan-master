@@ -3,95 +3,96 @@
 @tailwind utilities;
 
 /* ===========================================================================
-   Warikan Master Design System — "SEISAN"
-   Electric emerald × 和モダン・フィンテック
+   Warikan Master Design System — "SEISAN" v2
+   OS-native modern — iOS / Material のニュートラル面 + システムブルー
    - 色はセマンティックトークン（HSLトリプレット）で定義し、Tailwind から
      `hsl(var(--token) / <alpha-value>)` で参照する
    - 金額の増減は primary/destructive ではなく positive/negative を使う
    =========================================================================== */
 
-/* LIGHT MODE */
+/* LIGHT MODE — iOS の grouped background（薄グレー地 + 白カード） */
 :root {
-  --button-outline: rgba(9, 32, 24, 0.12);
-  --badge-outline: rgba(9, 32, 24, 0.06);
+  --button-outline: rgba(0, 0, 0, 0.12);
+  --badge-outline: rgba(0, 0, 0, 0.06);
   --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(9, 32, 24, 0.035);
-  --elevate-2: rgba(9, 32, 24, 0.09);
+  --elevate-1: rgba(0, 0, 0, 0.035);
+  --elevate-2: rgba(0, 0, 0, 0.09);
 
   /* Surfaces */
-  --background: 160 33% 98%;
-  --foreground: 168 32% 10%;
-  --border: 160 18% 89%;
-  --input: 160 16% 82%;
+  --background: 240 9% 96%;
+  --foreground: 240 6% 10%;
+  --border: 240 6% 88%;
+  --input: 240 5% 82%;
   --card: 0 0% 100%;
-  --card-foreground: 168 32% 10%;
-  --card-border: 160 20% 92%;
+  --card-foreground: 240 6% 10%;
+  --card-border: 240 6% 91%;
   --popover: 0 0% 100%;
-  --popover-foreground: 168 32% 10%;
-  --popover-border: 160 18% 90%;
+  --popover-foreground: 240 6% 10%;
+  --popover-border: 240 6% 90%;
 
-  /* Brand */
-  --primary: 162 88% 27%;
-  --primary-foreground: 150 40% 98%;
-  --secondary: 158 28% 94%;
-  --secondary-foreground: 165 24% 20%;
-  --muted: 156 24% 94%;
-  --muted-foreground: 162 10% 40%;
-  --accent: 156 36% 92%;
-  --accent-foreground: 165 26% 16%;
-  --destructive: 4 74% 47%;
+  /* Brand — iOS systemBlue */
+  --primary: 211 100% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 94%;
+  --secondary-foreground: 240 4% 22%;
+  --muted: 240 5% 93%;
+  --muted-foreground: 240 3% 42%;
+  --accent: 240 5% 92%;
+  --accent-foreground: 240 5% 15%;
+  --destructive: 3 84% 50%;
   --destructive-foreground: 0 0% 98%;
-  --ring: 162 88% 30%;
+  --ring: 211 100% 45%;
 
-  /* Money semantics — 受け取り / 支払い */
-  --positive: 161 88% 29%;
-  --positive-foreground: 150 40% 98%;
-  --negative: 4 78% 46%;
+  /* Money semantics — 受け取り / 支払い（iOS systemGreen / systemRed 系統） */
+  --positive: 136 60% 32%;
+  --positive-foreground: 0 0% 100%;
+  --negative: 3 84% 48%;
   --negative-foreground: 0 0% 98%;
 
-  /* Charts */
-  --chart-1: 161 84% 32%;
-  --chart-2: 173 70% 36%;
-  --chart-3: 188 74% 38%;
-  --chart-4: 40 92% 46%;
-  --chart-5: 16 84% 54%;
+  /* Charts — iOS システムカラーパレット */
+  --chart-1: 211 100% 50%;
+  --chart-2: 190 61% 42%;
+  --chart-3: 273 68% 59%;
+  --chart-4: 35 100% 48%;
+  --chart-5: 349 88% 55%;
 
   /* Sidebar (shadcn 互換) */
-  --sidebar: 158 26% 96%;
-  --sidebar-foreground: 168 32% 10%;
-  --sidebar-border: 160 18% 89%;
-  --sidebar-primary: 162 88% 27%;
+  --sidebar: 240 7% 95%;
+  --sidebar-foreground: 240 6% 10%;
+  --sidebar-border: 240 6% 88%;
+  --sidebar-primary: 211 100% 45%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 156 36% 92%;
-  --sidebar-accent-foreground: 165 26% 16%;
-  --sidebar-ring: 162 88% 30%;
+  --sidebar-accent: 240 5% 92%;
+  --sidebar-accent-foreground: 240 5% 15%;
+  --sidebar-ring: 211 100% 45%;
 
-  /* Typography */
-  --font-sans: 'Space Grotesk', 'Zen Kaku Gothic New', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-  --font-display: 'Space Grotesk', 'Zen Kaku Gothic New', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
-  --font-serif: 'Noto Serif JP', Georgia, serif;
-  --font-mono: 'Space Grotesk', 'SFMono-Regular', Menlo, Consolas, monospace;
-  --tracking-normal: 0.015em;
+  /* Typography — OS のシステムフォントに委ねる（apple_design §15） */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  --font-display: system-ui, -apple-system, 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --tracking-normal: 0;
 
   /* Shape */
   --radius: 1rem;
   --spacing: 0.25rem;
 
-  /* Depth — 緑がかったアンビエントシャドウ */
-  --shadow-2xs: 0 1px 2px 0 hsl(166 40% 12% / 0.04);
-  --shadow-xs: 0 1px 2px 0 hsl(166 40% 12% / 0.05);
-  --shadow-sm: 0 1px 3px 0 hsl(166 40% 12% / 0.07), 0 1px 2px -1px hsl(166 40% 12% / 0.05);
-  --shadow: 0 2px 4px -1px hsl(166 40% 12% / 0.08), 0 1px 2px -1px hsl(166 40% 12% / 0.05);
-  --shadow-md: 0 6px 12px -3px hsl(166 40% 12% / 0.09), 0 2px 5px -2px hsl(166 40% 12% / 0.06);
-  --shadow-lg: 0 14px 28px -6px hsl(166 40% 12% / 0.11), 0 4px 10px -4px hsl(166 40% 12% / 0.06);
-  --shadow-xl: 0 24px 40px -10px hsl(166 40% 12% / 0.14), 0 8px 16px -8px hsl(166 40% 12% / 0.07);
-  --shadow-2xl: 0 32px 64px -16px hsl(166 40% 12% / 0.22);
-  --shadow-glow: 0 8px 28px -8px hsl(161 84% 34% / 0.45), 0 2px 8px -2px hsl(161 84% 30% / 0.3);
-  --shadow-glow-lg: 0 16px 48px -12px hsl(161 84% 34% / 0.55), 0 4px 14px -4px hsl(161 84% 30% / 0.35);
+  /* Depth — ニュートラルで控えめなアンビエントシャドウ */
+  --shadow-2xs: 0 1px 2px 0 hsl(240 6% 10% / 0.04);
+  --shadow-xs: 0 1px 2px 0 hsl(240 6% 10% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(240 6% 10% / 0.06), 0 1px 2px -1px hsl(240 6% 10% / 0.04);
+  --shadow: 0 2px 4px -1px hsl(240 6% 10% / 0.07), 0 1px 2px -1px hsl(240 6% 10% / 0.04);
+  --shadow-md: 0 6px 12px -3px hsl(240 6% 10% / 0.08), 0 2px 5px -2px hsl(240 6% 10% / 0.05);
+  --shadow-lg: 0 14px 28px -6px hsl(240 6% 10% / 0.10), 0 4px 10px -4px hsl(240 6% 10% / 0.05);
+  --shadow-xl: 0 24px 40px -10px hsl(240 6% 10% / 0.12), 0 8px 16px -8px hsl(240 6% 10% / 0.06);
+  --shadow-2xl: 0 32px 64px -16px hsl(240 6% 10% / 0.20);
+  /* 旧 glow の互換トークン — 発光はやめ、通常の深度に丸める */
+  --shadow-glow: var(--shadow-md);
+  --shadow-glow-lg: var(--shadow-lg);
 
-  /* Brand gradients */
-  --gradient-brand: linear-gradient(135deg, hsl(166 92% 24%) 0%, hsl(160 84% 33%) 55%, hsl(174 78% 37%) 100%);
-  --gradient-brand-soft: linear-gradient(135deg, hsl(160 60% 95%) 0%, hsl(172 55% 94%) 100%);
+  /* Brand "gradients" — フラット単色（グラデーションは廃止、トークン互換のため残置） */
+  --gradient-brand: linear-gradient(0deg, hsl(211 100% 45%), hsl(211 100% 45%));
+  --gradient-brand-soft: linear-gradient(0deg, hsl(211 100% 97%), hsl(211 100% 97%));
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -99,6 +100,9 @@
   --duration-fast: 150ms;
   --duration-base: 250ms;
   --duration-slow: 450ms;
+
+  /* Scroll edge — 実線の代わりに、浮遊するUIとコンテンツの境目を沈める縁 */
+  --scroll-edge: hsl(240 6% 10% / 0.06);
 
   /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -143,56 +147,56 @@
   );
 }
 
-/* DARK MODE — ミント on 墨黒。ブランドカラーが発光する反転型 */
+/* DARK MODE — iOS ダーク（ほぼ黒の地 + ダークグレーの面 + 明るいブルー） */
 .dark {
-  --button-outline: rgba(235, 255, 246, 0.12);
-  --badge-outline: rgba(235, 255, 246, 0.06);
+  --button-outline: rgba(255, 255, 255, 0.12);
+  --badge-outline: rgba(255, 255, 255, 0.06);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(235, 255, 246, 0.045);
-  --elevate-2: rgba(235, 255, 246, 0.1);
+  --elevate-1: rgba(255, 255, 255, 0.045);
+  --elevate-2: rgba(255, 255, 255, 0.1);
 
-  --background: 172 36% 5%;
-  --foreground: 152 20% 93%;
-  --border: 166 14% 15%;
-  --input: 164 12% 24%;
-  --card: 168 26% 8%;
-  --card-foreground: 152 20% 93%;
-  --card-border: 166 16% 13%;
-  --popover: 168 24% 9%;
-  --popover-foreground: 152 20% 93%;
-  --popover-border: 166 16% 16%;
+  --background: 240 4% 5%;
+  --foreground: 240 5% 94%;
+  --border: 240 4% 17%;
+  --input: 240 4% 24%;
+  --card: 240 3% 11%;
+  --card-foreground: 240 5% 94%;
+  --card-border: 240 3% 15%;
+  --popover: 240 3% 12%;
+  --popover-foreground: 240 5% 94%;
+  --popover-border: 240 3% 17%;
 
-  --primary: 157 68% 52%;
-  --primary-foreground: 172 50% 6%;
-  --secondary: 165 14% 14%;
-  --secondary-foreground: 152 14% 90%;
-  --muted: 164 12% 14%;
-  --muted-foreground: 158 9% 62%;
-  --accent: 163 16% 15%;
-  --accent-foreground: 152 16% 92%;
-  --destructive: 3 74% 55%;
+  --primary: 211 100% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 3% 15%;
+  --secondary-foreground: 240 5% 90%;
+  --muted: 240 3% 14%;
+  --muted-foreground: 240 4% 64%;
+  --accent: 240 3% 16%;
+  --accent-foreground: 240 5% 92%;
+  --destructive: 4 100% 61%;
   --destructive-foreground: 0 0% 98%;
-  --ring: 157 68% 52%;
+  --ring: 211 100% 55%;
 
-  --positive: 157 68% 52%;
-  --positive-foreground: 172 50% 6%;
-  --negative: 4 92% 68%;
+  --positive: 135 63% 52%;
+  --positive-foreground: 138 40% 8%;
+  --negative: 4 100% 64%;
   --negative-foreground: 8 60% 8%;
 
-  --chart-1: 157 68% 55%;
-  --chart-2: 173 64% 52%;
-  --chart-3: 188 70% 54%;
-  --chart-4: 42 90% 62%;
-  --chart-5: 16 88% 64%;
+  --chart-1: 211 100% 58%;
+  --chart-2: 190 61% 55%;
+  --chart-3: 273 87% 68%;
+  --chart-4: 36 100% 55%;
+  --chart-5: 349 100% 64%;
 
-  --sidebar: 170 28% 6%;
-  --sidebar-foreground: 152 20% 93%;
-  --sidebar-border: 166 14% 14%;
-  --sidebar-primary: 157 68% 52%;
-  --sidebar-primary-foreground: 172 50% 6%;
-  --sidebar-accent: 163 16% 15%;
-  --sidebar-accent-foreground: 152 16% 92%;
-  --sidebar-ring: 157 68% 52%;
+  --sidebar: 240 4% 7%;
+  --sidebar-foreground: 240 5% 94%;
+  --sidebar-border: 240 4% 15%;
+  --sidebar-primary: 211 100% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3% 16%;
+  --sidebar-accent-foreground: 240 5% 92%;
+  --sidebar-ring: 211 100% 55%;
 
   --shadow-2xs: 0 1px 2px 0 hsl(0 0% 0% / 0.25);
   --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
@@ -202,11 +206,13 @@
   --shadow-lg: 0 14px 28px -6px hsl(0 0% 0% / 0.46), 0 4px 10px -4px hsl(0 0% 0% / 0.34);
   --shadow-xl: 0 24px 40px -10px hsl(0 0% 0% / 0.52);
   --shadow-2xl: 0 32px 64px -16px hsl(0 0% 0% / 0.6);
-  --shadow-glow: 0 8px 28px -8px hsl(157 70% 45% / 0.4), 0 2px 8px -2px hsl(157 70% 45% / 0.28);
-  --shadow-glow-lg: 0 16px 48px -12px hsl(157 70% 48% / 0.5), 0 4px 14px -4px hsl(157 70% 48% / 0.32);
+  --shadow-glow: var(--shadow-md);
+  --shadow-glow-lg: var(--shadow-lg);
 
-  --gradient-brand: linear-gradient(135deg, hsl(160 80% 40%) 0%, hsl(165 72% 48%) 55%, hsl(178 68% 50%) 100%);
-  --gradient-brand-soft: linear-gradient(135deg, hsl(165 30% 11%) 0%, hsl(175 26% 10%) 100%);
+  --gradient-brand: linear-gradient(0deg, hsl(211 100% 55%), hsl(211 100% 55%));
+  --gradient-brand-soft: linear-gradient(0deg, hsl(211 50% 13%), hsl(211 50% 13%));
+
+  --scroll-edge: hsl(0 0% 0% / 0.5);
 
   /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -263,10 +269,11 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
-    /* 日本語タイポグラフィ最適化 — palt 全域適用、広めの行間で信頼感を出す */
-    line-height: 1.75;
+    /* システムフォント基調 — トラッキングは OS 既定（0）に委ね、行間はネイティブアプリ相当 */
+    line-height: 1.65;
     letter-spacing: var(--tracking-normal);
     font-feature-settings: "palt" 1;
+    font-optical-sizing: auto;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -274,10 +281,11 @@
     overflow-wrap: break-word;
   }
 
-  /* 見出し・UIラベルは行間を詰め、字詰めを効かせて引き締める */
+  /* 見出し・UIラベルは行間を詰め、字詰めを効かせて引き締める。
+     トラッキングはサイズ別 — 大きな文字は詰め、本文は広めのまま（固定値を全サイズに使わない） */
   h1, h2, h3, h4, h5, h6 {
     line-height: 1.35;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.01em;
     font-weight: 700;
   }
 
@@ -337,11 +345,51 @@
     pointer-events: none;
   }
 
-  /* ガラス面 — ヘッダーやフローティング要素に使う */
+  /* ガラス面 — ヘッダーやフローティング要素に使う。
+     コンテンツが下を通り抜ける半透明マテリアル */
   .glass {
     background-color: hsl(var(--background) / 0.72);
-    backdrop-filter: blur(16px) saturate(1.5);
-    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    backdrop-filter: blur(16px) saturate(1.8);
+    -webkit-backdrop-filter: blur(16px) saturate(1.8);
+  }
+
+  /* 透明度を減らす設定では、ガラスを曇らせてほぼ不透明にする */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background-color: hsl(var(--background) / 0.98);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* 高コントラスト設定では、不透明な面 + 明確な境界線に切り替える */
+  @media (prefers-contrast: more) {
+    .glass {
+      background-color: hsl(var(--background));
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-bottom: 1px solid hsl(var(--border));
+    }
+  }
+
+  /* スクロールエッジ — 1px の実線ボーダーの代わりに、コンテンツと接する縁を
+     グラデーションでそっと沈める。浮遊するUIがコンテンツと重なる場所にだけ使う */
+  .scroll-edge-b {
+    position: relative;
+  }
+  .scroll-edge-b::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: 10px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, var(--scroll-edge), transparent);
+  }
+  @media (prefers-contrast: more) {
+    .scroll-edge-b::after {
+      display: none;
+    }
   }
 
   /* ブランドグラデーション */
