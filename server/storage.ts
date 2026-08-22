@@ -78,6 +78,10 @@ export interface IStorage {
   getMembersByEvent(eventId: number): Promise<Member[]>;
   getMembersByEventIds(eventIds: number[]): Promise<Member[]>;
   getMember(id: number): Promise<Member | undefined>;
+  updateMember(
+    id: number,
+    fields: Partial<Pick<InsertMember, "payoutPreference">>,
+  ): Promise<Member | undefined>;
   deleteMember(id: number): Promise<void>;
 
   // Payments
@@ -164,6 +168,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMember(id: number): Promise<Member | undefined> {
+    return this.db.select().from(members).where(eq(members.id, id)).get();
+  }
+
+  async updateMember(
+    id: number,
+    fields: Partial<Pick<InsertMember, "payoutPreference">>,
+  ): Promise<Member | undefined> {
+    await this.db.update(members).set(fields).where(eq(members.id, id)).run();
     return this.db.select().from(members).where(eq(members.id, id)).get();
   }
 

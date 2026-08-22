@@ -30,6 +30,11 @@ export const members = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     eventId: integer("event_id").notNull(),
     name: text("name").notNull(),
+    // 受け取り方の希望。null は「未設定」。
+    // 口座番号や PayPay ID のような具体値は意図的に持たない — 合言葉を知っている
+    // 人は全員この値を読めるため、漏れて困るものを置かない方針にしている。
+    // 送る側は手段だけ分かれば、口座や ID は本人に直接聞ける。
+    payoutPreference: text("payout_preference"), // PayoutPreference | null
   },
   (table) => [index("members_event_id_idx").on(table.eventId)],
 );
@@ -107,6 +112,18 @@ export type SplitMode = (typeof SPLIT_MODES)[number];
 export const EVENT_TYPES = ["trip", "meal", "other"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
+// メンバーが希望する受け取り方。手段だけを持ち、口座番号や ID は持たない
+// （members.payoutPreference のコメント参照）。
+export const PAYOUT_PREFERENCES = ["bank", "paypay", "cash", "any"] as const;
+export type PayoutPreference = (typeof PAYOUT_PREFERENCES)[number];
+
+export const PAYOUT_PREFERENCE_LABELS: Record<PayoutPreference, string> = {
+  bank: "銀行振込",
+  paypay: "PayPay",
+  cash: "現金で手渡し",
+  any: "どれでもいい",
+};
+
 export const SCHEDULE_CATEGORIES = ["accommodation", "transport", "other"] as const;
 export type ScheduleCategory = (typeof SCHEDULE_CATEGORIES)[number];
 
@@ -157,7 +174,27 @@ const basePaymentFields = {
 
 // weights / amounts are objects keyed by member id (as string, since JSON object
 // keys are strings). Values are positive numbers.
-const detailRecord = z.record(z.string(), z.number());
+//
+// 比率の重みには有限性と上限を課す。`z.number()` は Infinity も 1e308 も通すため、
+// 制限しないと splitYen の (total * wi) / weightSum が Infinity になり、
+// 余り配分の while ループが停止しなくなる（サーバのイベントループを占有する）。
+// 1000 倍を超える比率差は実用上ないので、上限としては十分に緩い。
+export const MAX_SPLIT_WEIGHT = 1000;
+
+const weightRecord = z.record(
+  z.string(),
+  z
+    .number({ invalid_type_error: "比率には数値を入力してください" })
+    .finite("比率には有限の数値を入力してください")
+    .positive("比率は0より大きい値で入力してください")
+    .max(MAX_SPLIT_WEIGHT, `比率は${MAX_SPLIT_WEIGHT}以下で入力してください`),
+);
+
+// 金額指定の内訳。合計と `amount` の一致は superRefine 側で検証する。
+const amountRecord = z.record(
+  z.string(),
+  z.number({ invalid_type_error: "金額には数値を入力してください" }).finite("金額には有限の数値を入力してください"),
+);
 
 export const paymentInputSchema = z
   .discriminatedUnion("splitMode", [
@@ -170,13 +207,13 @@ export const paymentInputSchema = z
       ...basePaymentFields,
       splitMode: z.literal("ratio"),
       splitMemberIds: memberIdList,
-      weights: detailRecord,
+      weights: weightRecord,
     }),
     z.object({
       ...basePaymentFields,
       splitMode: z.literal("amount"),
       splitMemberIds: memberIdList,
-      amounts: detailRecord,
+      amounts: amountRecord,
     }),
   ])
   .superRefine((data, ctx) => {
@@ -318,6 +355,14 @@ export const updateEventInputSchema = z
   });
 
 export type UpdateEventInput = z.infer<typeof updateEventInputSchema>;
+
+// メンバーの受け取り方の希望の変更（PATCH /api/events/:id/members/:memberId）。
+// null は「未設定に戻す」を意味する。
+export const updateMemberInputSchema = z.object({
+  payoutPreference: z.enum(PAYOUT_PREFERENCES).nullable(),
+});
+
+export type UpdateMemberInput = z.infer<typeof updateMemberInputSchema>;
 
 // ---------------------------------------------------------------------------
 // Schedule item input schema（API とクライアントのフォームで共用）。

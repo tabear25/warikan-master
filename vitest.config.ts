@@ -15,6 +15,9 @@ export default defineConfig({
       "shared/**/*.test.ts",
       "server/**/*.test.ts",
       "tests/**/*.test.ts",
+      // クライアント側の純粋関数（lib/）もここで拾う。DOM を触るものは対象外
+      // （environment は node のまま）。
+      "client/src/lib/**/*.test.ts",
     ],
     setupFiles: ["tests/setup.ts"],
   },

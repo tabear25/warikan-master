@@ -21,12 +21,21 @@ export function splitYen(
   });
   const weightSum = w.reduce((acc, value) => acc + value, 0);
 
-  // 全重みが 0 の場合は均等割りにフォールバック。
-  if (weightSum <= 0) {
+  // 全重みが 0、または合計が非有限（極端に大きな重みでオーバーフローした）場合は
+  // 均等割りにフォールバックする。ここを抜けると下の while が
+  // remainder = ±Infinity / NaN になって停止しなくなる。
+  // 入口の検証（shared/schema.ts の weightRecord）で弾いているが、この関数は
+  // クライアントのプレビューからも直接呼ばれるので自分でも守る。
+  if (!(weightSum > 0) || !Number.isFinite(weightSum)) {
     return splitYen(safeTotal, order);
   }
 
   const exact = w.map((wi) => (safeTotal * wi) / weightSum);
+  // safeTotal * wi の段階でオーバーフローすると exact が Infinity になる。
+  if (!exact.every((value) => Number.isFinite(value))) {
+    return splitYen(safeTotal, order);
+  }
+
   const floors = exact.map(Math.floor);
   const floorSum = floors.reduce((acc, value) => acc + value, 0);
   let remainder = safeTotal - floorSum;

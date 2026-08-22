@@ -128,6 +128,11 @@ export default function Home() {
                       onChange={(e) => setKeyword(e.target.value)}
                       disabled={joinMutation.isPending}
                       autoComplete="off"
+                      // 合言葉の照合は完全一致。モバイルの自動大文字化・自動修正が
+                      // 効くと "kyoto2026" が "Kyoto2026" になって参加できなくなる。
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       className="h-12 text-center font-display text-base font-semibold tracking-wide"
                     />
                   </div>
