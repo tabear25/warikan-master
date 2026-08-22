@@ -40,10 +40,8 @@ cd warikan-master
 # 依存パッケージをインストール
 npm install
 
-# データベースを初期化（TURSO_* 未設定ならローカルの data.db が自動生成される）
-npm run db:push
-
-# 開発サーバーを起動
+# 開発サーバーを起動（起動時に migrations/ が自動適用される。
+# TURSO_* 未設定ならローカルの data.db が自動生成される）
 npm run dev
 ```
 
@@ -57,7 +55,22 @@ npm run dev
 | `npm run build` | 本番ビルド（`dist/` に出力） |
 | `npm start` | 本番サーバー起動 |
 | `npm run check` | TypeScript 型チェック |
-| `npm run db:push` | Drizzle でスキーマを DB に反映 |
+| `npm test` | vitest でテストを実行 |
+| `npm run db:generate` | `shared/schema.ts` の変更から `migrations/` を生成 |
+| `npm run db:push` | スキーマを DB へ直接反映（**使い捨てのローカル DB 専用**。下記の注意を読むこと） |
+
+> **`db:push` の注意**
+>
+> スキーマの適用は、通常は**サーバ起動時の自動マイグレーション**が行います（`server/index.ts`）。
+> 手順として `db:push` を実行する必要はありません。
+>
+> `drizzle-kit push` はスキーマを直接反映する一方で、適用済みを記録する `__drizzle_migrations`
+> テーブルを更新しません。そのため一度でも打つと、次回の起動時マイグレーションが
+> 「まだ適用していない」と判断して同じ `ALTER TABLE` を流し、`duplicate column name` で
+> **サーバが起動しなくなります**。
+>
+> 特に、`.env` に本番 Turso の認証情報を入れた状態で打つと本番 DB がこの状態になります。
+> スキーマを変えたいときは `npm run db:generate` でマイグレーションを作ってください。
 
 ## 本番デプロイ
 

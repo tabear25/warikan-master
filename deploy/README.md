@@ -86,9 +86,10 @@ Render が `deploy/Dockerfile` を使ってビルドを開始します。
   - `PORT=10000`：Render が外部公開するポート。
   - `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`：Turso 接続情報（Render dashboard で入力）。未設定だと DB 接続に失敗します。
   - `ADMIN_USERNAME` / `ADMIN_PASSWORD`：管理者ログイン情報（Render dashboard で入力）。未設定だと起動に失敗します。
-- **起動コマンド**: `npm run db:push -- --force && node dist/index.cjs`
-  - 起動時に Turso DB へスキーマを自動適用（テーブルが無ければ作成、既にあれば何もしない）。
-  - その後 Express サーバーを起動。
+- **起動コマンド**: `node dist/index.cjs`（`deploy/Dockerfile` の `CMD`）
+  - サーバ自身が起動時に `migrations/` を適用します（失敗したら起動を中止します）。
+  - `db:push` は**実行しません**。実行すると `__drizzle_migrations` が更新されないまま
+    スキーマだけが変わり、次回の起動時マイグレーションが `duplicate column name` で失敗します。
 
 ---
 
@@ -109,7 +110,7 @@ Render が `deploy/Dockerfile` を使ってビルドを開始します。
 4. Render ダッシュボードの **「Environment」** タブで次の 2 つを設定します：
    - `TURSO_DATABASE_URL`：手順 3 の Database URL。
    - `TURSO_AUTH_TOKEN`：手順 3 の Auth Token。
-5. 保存すると Render が自動で再デプロイします。起動時に `npm run db:push` が
+5. 保存すると Render が自動で再デプロイします。起動時に `migrations/` の適用が走って
    Turso 上へテーブルを作成し、以降はデータが保持されます。
 
 > これ以降、再起動・再デプロイ・スリープ復帰をまたいでも、登録したイベントや支払いは消えません。
@@ -176,7 +177,8 @@ docker run --rm -p 10000:10000 \
 | 症状 | 対処 |
 | --- | --- |
 | 起動時に DB 接続エラーで立ち上がらない | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` が正しく設定されているか確認（URL は `libsql://...`、トークンは失効していないか）。 |
-| 起動直後 500 エラー | Logs を確認。`db:push` が失敗している場合は Turso の URL・トークン・到達性（ネットワーク）を確認。 |
+| 起動直後 500 エラー | Logs を確認。マイグレーションが失敗している場合は Turso の URL・トークン・到達性（ネットワーク）を確認。 |
+| 起動時に `duplicate column name` で落ちる | 誰かが `.env` に本番の `TURSO_*` を入れた状態で `npm run db:push` を打った可能性が高いです。`drizzle-kit push` は `__drizzle_migrations` を更新しないため、起動時マイグレーションが同じ `ALTER TABLE` を再実行します。Turso 側の `__drizzle_migrations` に該当マイグレーションの行を手で入れるか、対象の列を削って再適用してください。**本番 DB に `db:push` を打たないこと。** |
 | データが消える | `TURSO_*` が未設定だとローカルのファイル DB にフォールバックし、Render では揮発します。Render の Environment に Turso の 2 変数が入っているか確認。 |
 | ローカルで Turso に向けたい | `.env` に `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` を設定。未設定なら `data.db` を使用。 |
 | URL が `https://...onrender.com` のまま | 独自ドメインは Settings から後付けで追加可能。 |
