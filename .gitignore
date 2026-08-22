@@ -28,3 +28,8 @@ drizzle/
 # Logs
 *.log
 npm-debug.log*
+
+# ローカル専用の作業メモ（監査・棚卸しの結果）。手元で参照するもので、
+# リポジトリには含めない。
+docs/*_AUDIT_*.md
+docs/FEATURE_GAP_*.md
