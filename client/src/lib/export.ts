@@ -11,13 +11,19 @@ export interface Transfer {
 
 interface SettlementExportData {
   eventName: string;
-  members: Array<{ id: number; name: string }>;
+  // payoutLabel は「銀行振込」等の表示済み文字列。ラベルへの変換は呼び出し側の
+  // 責務にして、このモジュールが @shared/schema に依存しないようにしている。
+  members: Array<{ id: number; name: string; payoutLabel?: string | null }>;
   balances: Record<number, number>;
   transfers: Transfer[];
 }
 
 // LINE 等に貼り付けやすいプレーンテキストの精算サマリ。
 export function buildSettlementText({ eventName, members, balances, transfers }: SettlementExportData): string {
+  // transfers は相手を名前文字列で指す。メンバー名はイベント内で重複禁止なので
+  // 名前をキーにして衝突しない。
+  const payoutLabelByName = new Map(members.map((member) => [member.name, member.payoutLabel ?? null]));
+
   const lines: string[] = [];
   lines.push(`【${eventName}】精算結果`);
   lines.push("");
@@ -32,7 +38,9 @@ export function buildSettlementText({ eventName, members, balances, transfers }:
     lines.push("・精算は不要です");
   } else {
     for (const transfer of transfers) {
-      lines.push(`・${transfer.from} → ${transfer.to}: ${formatYen(transfer.amount)}`);
+      const payoutLabel = payoutLabelByName.get(transfer.to);
+      const suffix = payoutLabel ? `（受け取り方: ${payoutLabel}）` : "";
+      lines.push(`・${transfer.from} → ${transfer.to}: ${formatYen(transfer.amount)}${suffix}`);
     }
   }
   return lines.join("\n");
@@ -45,14 +53,20 @@ export function buildSettlementCsv({ members, balances, transfers }: SettlementE
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
 
+  const payoutLabelByName = new Map(members.map((member) => [member.name, member.payoutLabel ?? null]));
+
   const rows: string[] = [];
-  rows.push("セクション,項目1,項目2,金額");
+  rows.push("セクション,項目1,項目2,金額,受け取り方");
   for (const member of members) {
     const balance = Math.round(balances[member.id] ?? 0);
-    rows.push(["収支", escape(member.name), "", balance].join(","));
+    rows.push(["収支", escape(member.name), "", balance, escape(member.payoutLabel ?? "")].join(","));
   }
   for (const transfer of transfers) {
-    rows.push(["送金", escape(transfer.from), escape(transfer.to), Math.round(transfer.amount)].join(","));
+    // 受け取り方は送金先（受け取る側）のもの。
+    const payoutLabel = payoutLabelByName.get(transfer.to) ?? "";
+    rows.push(
+      ["送金", escape(transfer.from), escape(transfer.to), Math.round(transfer.amount), escape(payoutLabel)].join(","),
+    );
   }
   return "﻿" + rows.join("\n");
 }

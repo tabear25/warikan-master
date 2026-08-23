@@ -6,7 +6,7 @@ import { rm, readFile } from "fs/promises";
 // which helps cold start times
 const allowlist = [
   "bcryptjs",
-  "date-fns",
+  "compression",
   "dotenv",
   "drizzle-orm",
   "drizzle-zod",
@@ -14,7 +14,6 @@ const allowlist = [
   "express-rate-limit",
   "helmet",
   "zod",
-  "zod-validation-error",
 ];
 
 async function buildAll() {

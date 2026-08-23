@@ -167,6 +167,11 @@ export default function CreateEvent() {
                       maxLength={LIMITS.keyword}
                       required
                       autoComplete="off"
+                      // 参加側（home.tsx）と揃える。作成時に自動で大文字化されると、
+                      // 本人が口頭・チャットで伝えた合言葉と実際の値がずれる。
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       className="font-display font-semibold tracking-wide"
                     />
                     <p className="text-xs text-muted-foreground">

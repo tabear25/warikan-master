@@ -10,7 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npm run build` | Production build — Vite compiles client to `dist/public/`, esbuild bundles server to `dist/index.cjs` |
 | `npm start` | Run the production server |
 | `npm run check` | TypeScript type checking |
-| `npm run db:push` | Apply Drizzle schema to the database (Turso if `TURSO_*` set, else local `data.db`) |
+| `npm run db:generate` | Generate a migration in `migrations/` from a `shared/schema.ts` change |
+| `npm run db:push` | Push the schema straight to the DB — **throwaway local DBs only, see the warning below** |
+
+> **Never run `db:push` against a database the server will start against — including the production Turso DB.** Schema is normally applied by the server itself at startup (`server/index.ts` runs `migrate()`, and `deploy/Dockerfile`'s `CMD` is just `node dist/index.cjs`). `drizzle-kit push` changes the schema *without* writing `__drizzle_migrations`, so the next startup replays the same `ALTER TABLE` and dies on `duplicate column name`. To change the schema, run `db:generate` and commit the migration.
 
 There is no test runner configured in this project.
 
@@ -39,6 +42,8 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/
 
 **Database tables**: `events`, `members`, `payments`, `schedule_items`. The `payments.splitMemberIds` column stores a JSON array of member IDs.
 
+**Payout preference**: `members.payoutPreference` (nullable, `bank` / `paypay` / `cash` / `any`) records how a member wants to be paid back; it is shown on the member chips and under each row of the settlement transfer list. **Deliberately stores the method only — never an account number, a PayPay ID, or any other concrete handle.** Anyone who knows the event keyword can read and edit every member's value (the app never binds a device to a person), so nothing that would hurt if leaked belongs in this column. Do not "improve" this by adding a free-text detail field without revisiting that trade-off. Editing stays allowed on settled events, because transfers happen *after* settlement.
+
 **Trip schedule feature**: `events.type` (`trip` / `meal` / `other`, default `other`) gates the trip-itinerary feature — only `trip` events show the schedule tab. `schedule_items` holds accommodation / transport / other entries; per-category details (mode, from/to, reservation number, …) live in its `metadata` JSON column so new categories need no schema change. A schedule item converts into a payment via `POST /api/events/:id/payments` with an optional `scheduleItemId` — this links both sides bidirectionally (`payments.schedule_item_id` ↔ `schedule_items.payment_id`) in a transaction; deleting either side only clears the link on the other. Schedule editing stays allowed on settled events (only the payments side is locked). Requirements + implementation decisions: [docs/travel-feature-requirements.md](docs/travel-feature-requirements.md) §11.
 
 **Mobile app** (`mobile/`): A standalone **React Native (Expo SDK 52, Android-first)** app with its own `package.json` — kept separate from the web app to avoid React/dependency conflicts. It reimplements the five screens (`mobile/src/screens/`: Home, Create, Event, Admin, Help) natively, using React Navigation (native stack) instead of wouter, but mirrors the web app's logic and Japanese copy. It talks to the same Express API over HTTP; the base URL is injected via the `EXPO_PUBLIC_API_BASE` env var (`mobile/src/api/client.ts`). React Native's `fetch` is not subject to CORS, so the server needs no changes. The mobile app is **self-contained**: rather than importing `@shared`, the few pure helpers it needs (split algorithm, currency formatting, row types) are copied into `mobile/src/lib/` — keep these in sync with `shared/` if API shapes or the split logic change. The trip-schedule feature (`events.type`, `schedule_items`, OGP) is web-only for now; all related API fields are optional, so the mobile app keeps working unchanged. Admin credentials are persisted in the device keystore via `expo-secure-store` (`mobile/src/storage/admin.ts`).
@@ -46,6 +51,8 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/
 ## Key Logic
 
 **Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`.
+
+**Settling and un-settling**: `POST /api/events/:id/settle` and `POST /api/events/:id/unsettle` are both **general routes** — anyone with the keyword can settle and un-settle, matching the rest of the app's access model. Settling locks payment/member writes, so leaving the reverse admin-only stranded users with no recovery path. The admin route `PATCH /api/admin/events/:id/settlement` is kept for operations. Destructive actions stay admin-only: deleting an event (`DELETE /api/admin/events/:id`) and deleting a member (`DELETE /api/admin/events/:id/members/:memberId`).
 
 **OGP fetcher** ([server/ogp.ts](server/ogp.ts), backing `POST /api/ogp`): resolves og:title / description / image for schedule-item URLs. SSRF-guarded — http/https only, private / link-local IPs rejected at DNS-resolution time, redirects re-validated per hop (max 3), 3s timeout, 512KB body cap, 30 req/min/IP rate limit, in-memory cache. OGP failures must never block saving an item; the client treats errors as "no metadata".
 

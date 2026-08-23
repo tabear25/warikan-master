@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import helmet from "helmet";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import path from "path";
@@ -14,6 +15,10 @@ const httpServer = createServer(app);
 
 // Render などのリバースプロキシ配下で req.ip を正しく取得する（レート制限のため）。
 app.set("trust proxy", 1);
+
+// gzip 圧縮。JS/CSS/JSON が主で、共有リンクの初回表示（非圧縮で 770KB 前後）が
+// 7 割ほど縮む。静的配信より前に置く必要がある。
+app.use(compression());
 
 // セキュリティヘッダ。CSP は本番のみ有効にする（開発では Vite の HMR /
 // react-refresh がインラインスクリプトと eval を必要とするため）。

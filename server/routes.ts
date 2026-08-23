@@ -10,6 +10,7 @@ import {
   LIMITS,
   createEventInputSchema,
   updateEventInputSchema,
+  updateMemberInputSchema,
   paymentInputSchema,
   scheduleItemInputSchema,
   ogpRequestSchema,
@@ -53,13 +54,18 @@ const writeLimiter = rateLimit({
 
 // 合言葉は実質的にイベントへのアクセス資格情報なので、総当たり推測を
 // 一般の書き込みより厳しく制限する。
+// 成功はカウントしない（adminLoginLimiter と同じ方針）。会場やホテルの Wi-Fi、
+// キャリア NAT では参加者全員が同一 IP に見えるため、成功も数えると
+// 「その場で全員が参加する」という本来の使い方で上限に当たってしまう。
+// 総当たり対策としては失敗回数だけ数えれば足りる。
 const joinLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 15,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
-  message: { error: "リクエストが多すぎます。しばらく待ってから再度お試しください。" },
+  message: { error: "合言葉の入力を短時間に繰り返しています。しばらく待ってから再度お試しください。" },
 });
 
 // 読み取り系（GET /api/*）の一括制限。通常利用では届かない緩い上限で、
@@ -510,6 +516,35 @@ export async function registerRoutes(
     return res.status(201).json(member);
   });
 
+  // 受け取り方の希望の設定。合言葉を知っている人なら誰でも変更できる（このアプリは
+  // 端末とメンバーを結びつけないので、本人だけに限定する手段がない）。保持するのは
+  // 手段の種別だけで、口座番号や PayPay ID は保存しない。
+  // 精算済みでも変更できる — 送金はむしろ精算後に発生するため。
+  app.patch("/api/events/:id/members/:memberId", writeLimiter, async (req, res) => {
+    const eventId = parseInt(String(req.params.id), 10);
+    const memberId = parseInt(String(req.params.memberId), 10);
+    // 負の ID はクライアントの楽観更新が使う仮 ID（AddMemberDialog）。サーバには
+    // 存在しないので、404 ではなく 400 で「不正な ID」と切り分けられるようにする。
+    if (isNaN(eventId) || isNaN(memberId) || eventId <= 0 || memberId <= 0) {
+      return res.status(400).json({ error: "Invalid ID" });
+    }
+
+    const member = await storage.getMember(memberId);
+    if (!member || member.eventId !== eventId) {
+      return res.status(404).json({ error: "Member not found" });
+    }
+
+    const parsed = updateMemberInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    const updated = await storage.updateMember(memberId, {
+      payoutPreference: parsed.data.payoutPreference,
+    });
+    return res.json(updated);
+  });
+
   app.get("/api/events/:id/payments", async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
@@ -790,13 +825,31 @@ export async function registerRoutes(
     return res.json(result);
   });
 
-  app.post("/api/events/:id/settle", async (req, res) => {
+  app.post("/api/events/:id/settle", writeLimiter, async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) {
       return res.status(400).json({ error: "Invalid event ID" });
     }
 
     const event = await storage.settleEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    return res.json(event);
+  });
+
+  // 精算の取り消し。「精算する」を誰でも押せるのに戻すのは管理者だけ、という
+  // 非対称を解消するための一般ルート。誤タップで支払いの追加・編集・削除まで
+  // 止まってしまい、開発者に連絡する以外の復旧手段がなかった。
+  // 管理者向けの PATCH /api/admin/events/:id/settlement は運用用に残してある。
+  app.post("/api/events/:id/unsettle", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid event ID" });
+    }
+
+    const event = await storage.updateEventSettlementStatus(id, false);
     if (!event) {
       return res.status(404).json({ error: "Event not found" });
     }

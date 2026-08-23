@@ -79,3 +79,43 @@ describe("splitYen", () => {
     }
   });
 });
+
+// 極端な重みは splitYen の (total * wi) / weightSum を Infinity にし、
+// 余り配分の while ループが停止しなくなる（サーバのイベントループを占有する）。
+// 入口の検証（paymentInputSchema の weightRecord）で弾いているが、この関数は
+// クライアントのプレビューからも直接呼ばれるため、関数側の防御も固定しておく。
+describe("splitYen — 非有限な重みでも停止する", () => {
+  // タイムアウトを短めにして、回帰したときにハングではなく失敗として出す。
+  it("重みが 1e308 でも停止し、均等割りにフォールバックする", { timeout: 2000 }, () => {
+    const result = splitYen(3000, [1, 2], { 1: 1e308, 2: 1 });
+    expect(sum(result)).toBe(3000);
+    expect(result.get(1)).toBe(1500);
+    expect(result.get(2)).toBe(1500);
+  });
+
+  it("重みが Infinity でも停止する", { timeout: 2000 }, () => {
+    const result = splitYen(3000, [1, 2], { 1: Infinity, 2: 1 });
+    expect(sum(result)).toBe(3000);
+    result.forEach((share) => expect(Number.isFinite(share)).toBe(true));
+  });
+
+  it("全員の重みが Infinity でも停止する", { timeout: 2000 }, () => {
+    const result = splitYen(1000, [1, 2, 3], { 1: Infinity, 2: Infinity, 3: Infinity });
+    expect(sum(result)).toBe(1000);
+    result.forEach((share) => expect(Number.isInteger(share)).toBe(true));
+  });
+
+  it("金額が巨大でも重みが正常なら通常どおり配分する", { timeout: 2000 }, () => {
+    const result = splitYen(100_000_000, [1, 2], { 1: 1, 2: 3 });
+    expect(result.get(1)).toBe(25_000_000);
+    expect(result.get(2)).toBe(75_000_000);
+    expect(sum(result)).toBe(100_000_000);
+  });
+
+  it("上限 1000 までの重みは正しく効く", { timeout: 2000 }, () => {
+    const result = splitYen(1001, [1, 2], { 1: 1000, 2: 1 });
+    expect(sum(result)).toBe(1001);
+    expect(result.get(1)).toBe(1000);
+    expect(result.get(2)).toBe(1);
+  });
+});

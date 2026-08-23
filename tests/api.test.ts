@@ -272,3 +272,208 @@ describe("管理 API", () => {
     expect(await ctx.storage.getPaymentsByEvent(eventId)).toHaveLength(0);
   });
 });
+
+describe("精算の取り消し (POST /api/events/:id/unsettle)", () => {
+  let ctx: TestApp;
+  beforeEach(async () => {
+    ctx = await createTestApp();
+  });
+
+  it("管理者認証なしで取り消せて、支払いの追加が再びできるようになる", async () => {
+    const created = await createEvent(ctx, { keyword: "unsettle-flow" });
+    const eventId = created.body.event.id;
+    const memberIds = created.body.members.map((m: { id: number }) => m.id);
+
+    await request(ctx.app).post(`/api/events/${eventId}/settle`);
+
+    // 精算済みの間は支払いを足せない。
+    const blocked = await request(ctx.app).post(`/api/events/${eventId}/payments`).send({
+      payerId: memberIds[0],
+      amount: 1000,
+      description: "駐車場代",
+      splitMemberIds: memberIds,
+    });
+    expect(blocked.status).toBe(400);
+
+    // 管理者ヘッダを付けずに取り消せる。
+    const unsettled = await request(ctx.app).post(`/api/events/${eventId}/unsettle`);
+    expect(unsettled.status).toBe(200);
+    expect(unsettled.body.isSettled).toBe(false);
+
+    // 取り消したあとは追加できる（復旧が実際に効いていることの確認）。
+    const allowed = await request(ctx.app).post(`/api/events/${eventId}/payments`).send({
+      payerId: memberIds[0],
+      amount: 1000,
+      description: "駐車場代",
+      splitMemberIds: memberIds,
+    });
+    expect(allowed.status).toBe(201);
+  });
+
+  it("存在しないイベントは 404", async () => {
+    const res = await request(ctx.app).post("/api/events/999999/unsettle");
+    expect(res.status).toBe(404);
+  });
+
+  it("不正な ID は 400", async () => {
+    const res = await request(ctx.app).post("/api/events/abc/unsettle");
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("受け取り方の希望 (PATCH /api/events/:id/members/:memberId)", () => {
+  let ctx: TestApp;
+  let eventId: number;
+  let memberIds: number[];
+
+  beforeEach(async () => {
+    ctx = await createTestApp();
+    const created = await createEvent(ctx, { keyword: "payout-pref" });
+    eventId = created.body.event.id;
+    memberIds = created.body.members.map((m: { id: number }) => m.id);
+  });
+
+  it("初期値は null", async () => {
+    const res = await request(ctx.app).get(`/api/events/${eventId}/members`);
+    expect(res.status).toBe(200);
+    for (const member of res.body) {
+      expect(member.payoutPreference).toBeNull();
+    }
+  });
+
+  it("メンバーごとに別々の希望を設定できる", async () => {
+    await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[0]}`)
+      .send({ payoutPreference: "bank" });
+    await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[1]}`)
+      .send({ payoutPreference: "paypay" });
+    await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[2]}`)
+      .send({ payoutPreference: "any" });
+
+    const res = await request(ctx.app).get(`/api/events/${eventId}/members`);
+    const byId = Object.fromEntries(
+      res.body.map((m: { id: number; payoutPreference: string | null }) => [m.id, m.payoutPreference]),
+    );
+    expect(byId[memberIds[0]]).toBe("bank");
+    expect(byId[memberIds[1]]).toBe("paypay");
+    expect(byId[memberIds[2]]).toBe("any");
+  });
+
+  it("null を送ると未設定に戻る", async () => {
+    await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[0]}`)
+      .send({ payoutPreference: "cash" });
+
+    const cleared = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[0]}`)
+      .send({ payoutPreference: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.payoutPreference).toBeNull();
+  });
+
+  it("未知の値は 400", async () => {
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[0]}`)
+      .send({ payoutPreference: "bitcoin" });
+    expect(res.status).toBe(400);
+  });
+
+  it("別イベントのメンバー ID は 404", async () => {
+    const other = await createEvent(ctx, { keyword: "payout-other" });
+    const otherMemberId = other.body.members[0].id;
+
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${otherMemberId}`)
+      .send({ payoutPreference: "bank" });
+    expect(res.status).toBe(404);
+  });
+
+  it("精算済みでも変更できる（送金は精算後に発生するため）", async () => {
+    await request(ctx.app).post(`/api/events/${eventId}/settle`);
+
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/${memberIds[0]}`)
+      .send({ payoutPreference: "bank" });
+    expect(res.status).toBe(200);
+    expect(res.body.payoutPreference).toBe("bank");
+  });
+});
+
+describe("受け取り方の希望 — 不正な ID", () => {
+  let ctx: TestApp;
+  let eventId: number;
+
+  beforeEach(async () => {
+    ctx = await createTestApp();
+    const created = await createEvent(ctx, { keyword: "payout-badid" });
+    eventId = created.body.event.id;
+  });
+
+  it("負の memberId（クライアントの楽観更新が使う仮 ID）は 400", async () => {
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/-1750000000000`)
+      .send({ payoutPreference: "bank" });
+    expect(res.status).toBe(400);
+  });
+
+  it("memberId が 0 は 400", async () => {
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/0`)
+      .send({ payoutPreference: "bank" });
+    expect(res.status).toBe(400);
+  });
+
+  it("数値でない memberId は 400", async () => {
+    const res = await request(ctx.app)
+      .patch(`/api/events/${eventId}/members/abc`)
+      .send({ payoutPreference: "bank" });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("比率の重みの検証 (POST /api/events/:id/payments)", () => {
+  let ctx: TestApp;
+  let eventId: number;
+  let memberIds: number[];
+
+  beforeEach(async () => {
+    ctx = await createTestApp();
+    const created = await createEvent(ctx, { keyword: "weight-guard" });
+    eventId = created.body.event.id;
+    memberIds = created.body.members.map((m: { id: number }) => m.id);
+  });
+
+  const post = (weights: Record<string, number>) =>
+    request(ctx.app).post(`/api/events/${eventId}/payments`).send({
+      payerId: memberIds[0],
+      amount: 3000,
+      description: "宿泊費",
+      splitMemberIds: [memberIds[0], memberIds[1]],
+      splitMode: "ratio",
+      weights,
+    });
+
+  it("巨大な重み（1e308）は 400 で弾く", async () => {
+    const res = await post({ [memberIds[0]]: 1e308, [memberIds[1]]: 1 });
+    expect(res.status).toBe(400);
+  });
+
+  it("上限（1000）を超える重みは 400 で弾く", async () => {
+    const res = await post({ [memberIds[0]]: 1001, [memberIds[1]]: 1 });
+    expect(res.status).toBe(400);
+  });
+
+  it("上限ちょうどの重みは通る", async () => {
+    const res = await post({ [memberIds[0]]: 1000, [memberIds[1]]: 1 });
+    expect(res.status).toBe(201);
+  });
+
+  it("巨大な重みを弾いたあとも精算が応答する（無限ループの回帰ガード）", async () => {
+    await post({ [memberIds[0]]: 1e308, [memberIds[1]]: 1 });
+    const res = await request(ctx.app).get(`/api/events/${eventId}/settlement`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.transfers)).toBe(true);
+  }, 5000);
+});

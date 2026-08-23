@@ -25,7 +25,7 @@ import { ResponsiveDialog } from "@/components/responsive-dialog";
 import { useMediaQuery, DESKTOP_QUERY } from "@/hooks/use-media-query";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { AppHeader } from "@/components/app-header";
 import { MemberAvatar } from "@/components/member-avatar";
@@ -35,10 +35,11 @@ import { EVENT_TYPE_ICON, EVENT_TYPE_LABEL, formatShortDate } from "@/lib/schedu
 import {
   Plus, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
-  Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays,
+  Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays, RotateCcw, Landmark, Smartphone,
+  Banknote,
 } from "lucide-react";
-import type { Event, EventType, Member, Payment, SplitMode } from "@shared/schema";
-import { EVENT_TYPES } from "@shared/schema";
+import type { Event, EventType, Member, Payment, PayoutPreference, SplitMode } from "@shared/schema";
+import { EVENT_TYPES, MAX_SPLIT_WEIGHT, PAYOUT_PREFERENCES, PAYOUT_PREFERENCE_LABELS } from "@shared/schema";
 import { splitYen } from "@shared/split";
 import { formatYen, formatSignedYen } from "@/lib/currency";
 import { CountUp } from "@/components/count-up";
@@ -376,6 +377,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
                       <Input
                         type="number"
                         min="0"
+                        max={MAX_SPLIT_WEIGHT}
                         step="1"
                         inputMode="numeric"
                         className="h-8 w-16 rounded-lg px-2 text-center text-xs tabular-nums"
@@ -451,7 +453,7 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
       const prev = queryClientHook.getQueryData<Member[]>(membersKey);
       queryClientHook.setQueryData<Member[]>(membersKey, (old = []) => [
         ...old,
-        { id: -Date.now(), eventId, name: memberName },
+        { id: -Date.now(), eventId, name: memberName, payoutPreference: null },
       ]);
       onOpenChange(false);
       toast({ title: "メンバーを追加しました" });
@@ -493,6 +495,75 @@ function AddMemberDialog({ open, onOpenChange, eventId }: { open: boolean; onOpe
           {mutation.isPending ? "追加中..." : "追加する"}
         </Button>
       </form>
+    </ResponsiveDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 受け取り方の希望ダイアログ
+// 保持するのは手段の種別だけで、口座番号や PayPay ID は保存しない。合言葉を
+// 知っている人は全員この値を読めるため、漏れて困るものを置かない方針。
+// ---------------------------------------------------------------------------
+function PayoutPreferenceDialog({
+  member,
+  onOpenChange,
+  onSelect,
+}: {
+  member: Member | null;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (preference: PayoutPreference | null) => void;
+}) {
+  const current = (member?.payoutPreference ?? null) as PayoutPreference | null;
+
+  return (
+    <ResponsiveDialog
+      open={member !== null}
+      onOpenChange={onOpenChange}
+      title={member ? `${member.name}の受け取り方` : "受け取り方"}
+      description="送る人が迷わないように希望を選んでおけます。口座番号やIDは保存されません"
+    >
+      <div className="space-y-2 pt-1">
+        {PAYOUT_PREFERENCES.map((preference) => {
+          const Icon = PAYOUT_PREFERENCE_ICON[preference];
+          const selected = current === preference;
+          return (
+            <button
+              key={preference}
+              type="button"
+              onClick={() => onSelect(preference)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-200",
+                selected ? "border-primary bg-primary/10" : "border-border hover:bg-accent/50",
+              )}
+              data-testid={`button-payout-${preference}`}
+            >
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                  selected ? "bg-primary/15 text-primary" : "bg-accent text-muted-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-semibold text-foreground">
+                {PAYOUT_PREFERENCE_LABELS[preference]}
+              </span>
+              {selected && <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />}
+            </button>
+          );
+        })}
+        {current && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={() => onSelect(null)}
+            data-testid="button-payout-clear"
+          >
+            未設定に戻す
+          </Button>
+        )}
+      </div>
     </ResponsiveDialog>
   );
 }
@@ -739,6 +810,15 @@ interface SettlementData {
   balances: Record<number, number>;
 }
 
+// 受け取り方の希望に添えるアイコン。ラベルの正本は @shared/schema の
+// PAYOUT_PREFERENCE_LABELS 側で、ここは見た目だけを持つ。
+const PAYOUT_PREFERENCE_ICON: Record<PayoutPreference, typeof Landmark> = {
+  bank: Landmark,
+  paypay: Smartphone,
+  cash: Banknote,
+  any: Coins,
+};
+
 interface SettlementSectionProps {
   isLoading: boolean;
   event: Event | undefined;
@@ -755,6 +835,8 @@ interface SettlementSectionProps {
   onDownloadImage: () => void;
   settlePending: boolean;
   onSettleClick: () => void;
+  unsettlePending: boolean;
+  onUnsettleClick: () => void;
 }
 
 function SettlementSection({
@@ -773,7 +855,16 @@ function SettlementSection({
   onDownloadImage,
   settlePending,
   onSettleClick,
+  unsettlePending,
+  onUnsettleClick,
 }: SettlementSectionProps) {
+  // transfers は名前文字列で相手を指すので、受け取り方の希望も名前で引く。
+  // メンバー名はイベント内で重複禁止（POST /api/events/:id/members が 409 を返す）
+  // なので、名前をキーにして衝突しない。
+  const payoutPreferenceByName = new Map(
+    memberList.map((m) => [m.name, (m.payoutPreference ?? null) as PayoutPreference | null]),
+  );
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -788,7 +879,7 @@ function SettlementSection({
 
   if (paymentCount === 0) {
     return (
-      <motion.div {...fadeUp} transition={SPRING}>
+      <motion.div {...fadeUp} transition={SPRING} className="space-y-4">
         <Card>
           <CardContent className="py-12 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
@@ -798,6 +889,22 @@ function SettlementSection({
             <p className="text-xs text-muted-foreground">支払いを記録すると精算結果が表示されます</p>
           </CardContent>
         </Card>
+        {/* 支払いの取得に失敗すると paymentCount は 0 になる。精算済みのまま
+            取り消しボタンまで消えると、誤タップした人の復旧手段が無くなるので
+            この空状態でも出しておく。 */}
+        {event?.isSettled && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={onUnsettleClick}
+            disabled={unsettlePending}
+            data-testid="button-unsettle-empty"
+          >
+            <RotateCcw className="h-4 w-4" />
+            {unsettlePending ? "取り消し中..." : "精算を取り消す"}
+          </Button>
+        )}
       </motion.div>
     );
   }
@@ -869,18 +976,31 @@ function SettlementSection({
                 <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 pb-4">
-                {settlement?.transfers.map((t, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
-                    <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
-                    <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                    <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
-                    <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
-                    <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
-                  </div>
-                ))}
+                {settlement?.transfers.map((t, i) => {
+                  const preference = payoutPreferenceByName.get(t.to) ?? null;
+                  return (
+                    <div key={i} className="rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
+                      <div className="flex items-center gap-2">
+                        <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
+                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </span>
+                        <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
+                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
+                        <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                      </div>
+                      {preference && (
+                        <p
+                          className="mt-1.5 pl-9 text-[11px] text-muted-foreground"
+                          data-testid={`transfer-payout-${i}`}
+                        >
+                          受け取り方: {PAYOUT_PREFERENCE_LABELS[preference]}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           </motion.div>
@@ -914,14 +1034,27 @@ function SettlementSection({
         </Button>
       ) : (
         <Card className="border-positive/20 bg-positive/5">
-          <CardContent className="flex items-center gap-3 py-4">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-positive/15 text-positive">
-              <CheckCircle2 className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-foreground">精算済み</p>
-              <p className="text-xs text-muted-foreground">このイベントは精算が完了しています</p>
+          <CardContent className="space-y-3 py-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-positive/15 text-positive">
+                <CheckCircle2 className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-foreground">精算済み</p>
+                <p className="text-xs text-muted-foreground">このイベントは精算が完了しています</p>
+              </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={onUnsettleClick}
+              disabled={unsettlePending}
+              data-testid="button-unsettle"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {unsettlePending ? "取り消し中..." : "精算を取り消す"}
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -944,6 +1077,8 @@ export default function EventPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("payments");
   const [settleConfirmOpen, setSettleConfirmOpen] = useState(false);
+  const [unsettleConfirmOpen, setUnsettleConfirmOpen] = useState(false);
+  const [payoutTarget, setPayoutTarget] = useState<Member | null>(null);
   const [keywordCopied, setKeywordCopied] = useState(false);
   const [exportingImage, setExportingImage] = useState(false);
   const settlementRef = useRef<HTMLDivElement>(null);
@@ -1014,6 +1149,44 @@ export default function EventPage() {
     },
   });
 
+  const unsettleMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `/api/events/${eventId}/unsettle`)).json(),
+    onSuccess: () => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId] });
+      toast({ title: "精算を取り消しました", description: "支払いの追加・編集ができる状態に戻りました" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    },
+  });
+
+  // 楽観更新：選んだ瞬間にチップと送金リストへ反映し、失敗した場合のみ巻き戻す。
+  // 本番の DB は Turso（リモート）なので、往復を待つと「押したのに変わらない」時間ができる。
+  const payoutMutation = useMutation({
+    mutationFn: async ({ memberId, payoutPreference }: { memberId: number; payoutPreference: PayoutPreference | null }) =>
+      (await apiRequest("PATCH", `/api/events/${eventId}/members/${memberId}`, { payoutPreference })).json(),
+    onMutate: async ({ memberId, payoutPreference }) => {
+      const membersKey = ["/api/events", eventId, "members"];
+      await queryClientHook.cancelQueries({ queryKey: membersKey });
+      const prev = queryClientHook.getQueryData<Member[]>(membersKey);
+      queryClientHook.setQueryData<Member[]>(membersKey, (old = []) =>
+        old.map((m) => (m.id === memberId ? { ...m, payoutPreference } : m)),
+      );
+      return { prev };
+    },
+    onError: (err: Error, _vars, ctx) => {
+      if (ctx?.prev) queryClientHook.setQueryData(["/api/events", eventId, "members"], ctx.prev);
+      toast({
+        title: "保存できませんでした（元に戻しました）",
+        description: err.message.replace(/^\d+: /, ""),
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] });
+    },
+  });
+
   const event = eventQuery.data;
   const memberList = membersQuery.data ?? [];
   const paymentList = paymentsQuery.data ?? [];
@@ -1064,7 +1237,18 @@ export default function EventPage() {
   };
 
   const exportData = event && settlement
-    ? { eventName: event.name, members: memberList, balances: settlement.balances, transfers: settlement.transfers }
+    ? {
+        eventName: event.name,
+        members: memberList.map((m) => ({
+          id: m.id,
+          name: m.name,
+          payoutLabel: m.payoutPreference
+            ? PAYOUT_PREFERENCE_LABELS[m.payoutPreference as PayoutPreference]
+            : null,
+        })),
+        balances: settlement.balances,
+        transfers: settlement.transfers,
+      }
     : null;
 
   const handleCopySummary = async () => {
@@ -1176,12 +1360,38 @@ export default function EventPage() {
         ) : memberList.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {memberList.map((m) => (
-              <Badge key={m.id} variant="secondary" className="gap-1.5 py-0.5 pl-1 pr-2.5 text-xs" data-testid={`badge-member-${m.id}`}>
-                <MemberAvatar name={m.name} className="h-5 w-5 text-[9px]" />
-                {m.name}
-              </Badge>
-            ))}
+            {memberList.map((m) => {
+              const preference = (m.payoutPreference ?? null) as PayoutPreference | null;
+              const PreferenceIcon = preference ? PAYOUT_PREFERENCE_ICON[preference] : null;
+              // 楽観追加中のメンバーは負の仮 ID を持つ（AddMemberDialog の onMutate）。
+              // サーバにまだ存在しないので、押しても必ず 404 になる。保存が済むまで無効化する。
+              const isSaving = m.id < 0;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setPayoutTarget(m)}
+                  disabled={isSaving}
+                  className={cn(
+                    badgeVariants({ variant: "secondary" }),
+                    "gap-1.5 py-0.5 pl-1 pr-2.5",
+                    isSaving && "opacity-60",
+                  )}
+                  data-testid={`badge-member-${m.id}`}
+                  aria-label={
+                    isSaving
+                      ? `${m.name}を保存中`
+                      : preference
+                        ? `${m.name}の受け取り方（${PAYOUT_PREFERENCE_LABELS[preference]}）を変更`
+                        : `${m.name}の受け取り方を設定`
+                  }
+                >
+                  <MemberAvatar name={m.name} className="h-5 w-5 text-[9px]" />
+                  {m.name}
+                  {PreferenceIcon && <PreferenceIcon className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />}
+                </button>
+              );
+            })}
             {!event?.isSettled && memberList.length < 50 && (
               <button
                 onClick={() => setAddMemberOpen(true)}
@@ -1413,6 +1623,8 @@ export default function EventPage() {
                 onDownloadImage={handleDownloadImage}
                 settlePending={settleMutation.isPending}
                 onSettleClick={() => setSettleConfirmOpen(true)}
+                unsettlePending={unsettleMutation.isPending}
+                onUnsettleClick={() => setUnsettleConfirmOpen(true)}
               />
             </TabsContent>
           )}
@@ -1440,6 +1652,8 @@ export default function EventPage() {
               onDownloadImage={handleDownloadImage}
               settlePending={settleMutation.isPending}
               onSettleClick={() => setSettleConfirmOpen(true)}
+              unsettlePending={unsettleMutation.isPending}
+              onUnsettleClick={() => setUnsettleConfirmOpen(true)}
             />
           </aside>
         )}
@@ -1497,6 +1711,36 @@ export default function EventPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={unsettleConfirmOpen} onOpenChange={setUnsettleConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-unsettle-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>精算を取り消しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              支払いの追加・編集・削除やメンバーの追加ができる状態に戻ります。すでに送金が済んでいる人がいる場合は、金額が変わることを伝えてください。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-unsettle">キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { unsettleMutation.mutate(); setUnsettleConfirmOpen(false); }}
+              data-testid="button-confirm-unsettle"
+            >
+              取り消す
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <PayoutPreferenceDialog
+        member={payoutTarget}
+        onOpenChange={(open) => { if (!open) setPayoutTarget(null); }}
+        onSelect={(payoutPreference) => {
+          if (!payoutTarget) return;
+          payoutMutation.mutate({ memberId: payoutTarget.id, payoutPreference });
+          setPayoutTarget(null);
+        }}
+      />
     </div>
   );
 }
