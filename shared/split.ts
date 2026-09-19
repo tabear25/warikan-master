@@ -57,3 +57,44 @@ export function splitYen(
 
   return result;
 }
+
+// 1件の支払いの「誰がいくら負担したか」。Payment 行がそのまま渡せる構造型に
+// しているのは、この純粋関数を drizzle / zod から切り離しておくため。
+export interface PaymentSplitInput {
+  amount: number;
+  splitMemberIds: string; // JSON array of member IDs
+  splitMode?: string | null;
+  splitDetails?: string | null; // JSON object keyed by member id
+}
+
+/**
+ * Compute the per-member integer-yen share for a single payment, dispatching on
+ * its split mode. Legacy rows (no `splitMode` / `splitDetails`) are treated as
+ * an equal split, preserving historical behaviour.
+ *
+ * サーバの精算計算と、クライアントの送金リスト詳細の両方がこれを使う。
+ */
+export function computeShares(payment: PaymentSplitInput): Map<number, number> {
+  const participants: number[] = JSON.parse(payment.splitMemberIds);
+  const total = Math.round(payment.amount);
+  const mode = payment.splitMode ?? "equal";
+
+  if (mode === "amount" && payment.splitDetails) {
+    const detail = JSON.parse(payment.splitDetails) as Record<string, number>;
+    const shares = new Map<number, number>();
+    participants.forEach((id) => shares.set(id, Math.round(detail[String(id)] ?? 0)));
+    return shares;
+  }
+
+  if (mode === "ratio" && payment.splitDetails) {
+    const detail = JSON.parse(payment.splitDetails) as Record<string, number>;
+    const weights: Record<number, number> = {};
+    participants.forEach((id) => {
+      weights[id] = detail[String(id)] ?? 0;
+    });
+    return splitYen(total, participants, weights);
+  }
+
+  // equal (also covers all legacy rows)
+  return splitYen(total, participants);
+}

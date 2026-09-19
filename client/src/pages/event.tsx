@@ -36,11 +36,11 @@ import {
   Plus, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
   Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays, RotateCcw, Landmark, Smartphone,
-  Banknote,
+  Banknote, ChevronDown,
 } from "lucide-react";
 import type { Event, EventType, Member, Payment, PayoutPreference, SplitMode } from "@shared/schema";
 import { EVENT_TYPES, MAX_SPLIT_WEIGHT, PAYOUT_PREFERENCES, PAYOUT_PREFERENCE_LABELS } from "@shared/schema";
-import { splitYen } from "@shared/split";
+import { computeShares, splitYen } from "@shared/split";
 import { formatYen, formatSignedYen } from "@/lib/currency";
 import { CountUp } from "@/components/count-up";
 import { fireConfetti } from "@/lib/confetti";
@@ -819,10 +819,26 @@ const PAYOUT_PREFERENCE_ICON: Record<PayoutPreference, typeof Landmark> = {
   any: Coins,
 };
 
+// 送金行を開いたときに見せる、メンバー1人分の内訳。
+// 立替合計 − 負担合計 = その人の収支（settlement.balances と一致する）。
+interface BreakdownRow {
+  paymentId: number;
+  description: string;
+  paid: number;  // この人が立て替えた額（0 なら立替なし）
+  share: number; // この人の負担額（0 なら割り勘対象外）
+}
+
+interface MemberBreakdown {
+  paidTotal: number;
+  shareTotal: number;
+  rows: BreakdownRow[];
+}
+
 interface SettlementSectionProps {
   isLoading: boolean;
   event: Event | undefined;
   memberList: Member[];
+  payments: Payment[];
   paymentCount: number;
   totalSpent: number;
   perPersonAvg: number;
@@ -843,6 +859,7 @@ function SettlementSection({
   isLoading,
   event,
   memberList,
+  payments,
   paymentCount,
   totalSpent,
   perPersonAvg,
@@ -864,6 +881,48 @@ function SettlementSection({
   const payoutPreferenceByName = new Map(
     memberList.map((m) => [m.name, (m.payoutPreference ?? null) as PayoutPreference | null]),
   );
+
+  // 開いている送金行（アコーディオンと同じく同時に1つだけ）。
+  const [openTransfer, setOpenTransfer] = useState<number | null>(null);
+
+  // 支払いをメンバー別に組み直し、「なぜこの金額？」に答えられる形にする。
+  // 割り勘の配分はサーバの精算と同じ computeShares を使うので、ここの
+  // 合計は settlement.balances と必ず一致する。
+  const breakdownByName = useMemo(() => {
+    const byId = new Map<number, MemberBreakdown>();
+    memberList.forEach((m) => byId.set(m.id, { paidTotal: 0, shareTotal: 0, rows: [] }));
+
+    const ordered = [...payments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const payment of ordered) {
+      let shares: Map<number, number>;
+      try {
+        shares = computeShares(payment);
+      } catch {
+        // splitMemberIds / splitDetails は JSON 文字列。壊れていても詳細が
+        // 開けなくなるだけで済むよう、その1件を飛ばす。
+        continue;
+      }
+      const total = Math.round(payment.amount);
+      // スプレッドは tsconfig の target だと Map の iterator を展開できないので forEach で集める。
+      const involved = new Set<number>([payment.payerId]);
+      shares.forEach((_, memberId) => involved.add(memberId));
+      involved.forEach((memberId) => {
+        const entry = byId.get(memberId);
+        if (!entry) return; // 削除済みメンバーは収支にも現れないので無視
+        const paid = payment.payerId === memberId ? total : 0;
+        const share = shares.get(memberId) ?? 0;
+        if (paid === 0 && share === 0) return; // 重み 0 の参加者は行を作らない
+        entry.paidTotal += paid;
+        entry.shareTotal += share;
+        entry.rows.push({ paymentId: payment.id, description: payment.description, paid, share });
+      });
+    }
+
+    // transfers は相手を名前で指す（payoutPreferenceByName と同じ理由で衝突しない）。
+    return new Map(
+      memberList.map((m) => [m.name, byId.get(m.id) as MemberBreakdown]),
+    );
+  }, [memberList, payments]);
 
   if (isLoading) {
     return (
@@ -978,26 +1037,118 @@ function SettlementSection({
               <CardContent className="space-y-2 pb-4">
                 {settlement?.transfers.map((t, i) => {
                   const preference = payoutPreferenceByName.get(t.to) ?? null;
+                  const detail = breakdownByName.get(t.from) ?? null;
+                  const balance = detail ? detail.paidTotal - detail.shareTotal : 0;
+                  const isOpen = openTransfer === i;
                   return (
-                    <div key={i} className="rounded-xl bg-accent/50 p-2.5" data-testid={`transfer-${i}`}>
-                      <div className="flex items-center gap-2">
-                        <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
-                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </span>
-                        <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
-                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
-                        <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
-                      </div>
-                      {preference && (
-                        <p
-                          className="mt-1.5 pl-9 text-[11px] text-muted-foreground"
-                          data-testid={`transfer-payout-${i}`}
-                        >
-                          受け取り方: {PAYOUT_PREFERENCE_LABELS[preference]}
-                        </p>
-                      )}
+                    <div key={i} className="overflow-hidden rounded-xl bg-accent/50" data-testid={`transfer-${i}`}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenTransfer(isOpen ? null : i)}
+                        aria-expanded={isOpen}
+                        aria-controls={`transfer-detail-${i}`}
+                        className="w-full p-2.5 text-left transition-colors duration-200 hover:bg-accent/80"
+                        data-testid={`button-transfer-${i}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </span>
+                          <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
+                          <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                          <ChevronDown
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                              isOpen && "rotate-180",
+                            )}
+                            aria-hidden
+                          />
+                        </div>
+                        {preference && (
+                          <p
+                            className="mt-1.5 pl-9 text-[11px] text-muted-foreground"
+                            data-testid={`transfer-payout-${i}`}
+                          >
+                            受け取り方: {PAYOUT_PREFERENCE_LABELS[preference]}
+                          </p>
+                        )}
+                      </button>
+
+                      <AnimatePresence initial={false}>
+                        {isOpen && detail && (
+                          <motion.div
+                            id={`transfer-detail-${i}`}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            className="overflow-hidden"
+                            data-testid={`transfer-detail-${i}`}
+                          >
+                            <div className="space-y-3 border-t border-border/60 px-2.5 pb-3 pt-2.5">
+                              <div>
+                                <p className="mb-1 text-[11px] font-semibold text-foreground">{t.from}の収支</p>
+                                <dl className="space-y-0.5 text-[11px]">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <dt className="text-muted-foreground">立て替えた合計</dt>
+                                    <dd className="money tabular-nums text-foreground">{formatYen(detail.paidTotal)}</dd>
+                                  </div>
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <dt className="text-muted-foreground">割り勘の負担</dt>
+                                    <dd className="money tabular-nums text-foreground">{formatYen(detail.shareTotal)}</dd>
+                                  </div>
+                                  <div className="flex items-baseline justify-between gap-2 border-t border-border/60 pt-1 font-semibold">
+                                    <dt className="text-muted-foreground">差引</dt>
+                                    <dd className={cn("money tabular-nums", balance >= 0 ? "text-positive" : "text-negative")}>
+                                      {formatSignedYen(balance)}
+                                    </dd>
+                                  </div>
+                                </dl>
+                                {/* 貪欲法では1人の不足が複数の送金に分かれる。差引と送金額が
+                                    合わないときだけ、その理由を書き足す。 */}
+                                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                                  {balance < 0 && -balance !== t.amount
+                                    ? `不足している${formatYen(-balance)}のうち、${formatYen(t.amount)}を${t.to}さんへ（残りはほかの人へ）`
+                                    : `この不足分を${t.to}さんへ送ると精算完了です`}
+                                </p>
+                              </div>
+
+                              {detail.rows.length > 0 && (
+                                <div>
+                                  <p className="mb-1 text-[11px] font-semibold text-foreground">
+                                    支払いごとの内訳（{detail.rows.length}件）
+                                  </p>
+                                  <div className="space-y-0.5">
+                                    <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[10px] font-semibold text-muted-foreground">
+                                      <span>内容</span>
+                                      <span className="text-right">立替</span>
+                                      <span className="text-right">負担</span>
+                                    </div>
+                                    {detail.rows.map((row) => (
+                                      <div
+                                        key={row.paymentId}
+                                        className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[11px]"
+                                        data-testid={`transfer-detail-row-${row.paymentId}`}
+                                      >
+                                        <span className="truncate text-foreground">{row.description}</span>
+                                        <span className="money text-right tabular-nums text-muted-foreground">
+                                          {row.paid > 0 ? formatYen(row.paid) : "—"}
+                                        </span>
+                                        <span className="money text-right tabular-nums text-foreground">
+                                          {row.share > 0 ? formatYen(row.share) : "—"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   );
                 })}
@@ -1643,6 +1794,7 @@ export default function EventPage() {
                 isLoading={settlementQuery.isLoading}
                 event={event}
                 memberList={memberList}
+                payments={paymentList}
                 paymentCount={paymentList.length}
                 totalSpent={totalSpent}
                 perPersonAvg={perPersonAvg}
@@ -1672,6 +1824,7 @@ export default function EventPage() {
               isLoading={settlementQuery.isLoading}
               event={event}
               memberList={memberList}
+              payments={paymentList}
               paymentCount={paymentList.length}
               totalSpent={totalSpent}
               perPersonAvg={perPersonAvg}

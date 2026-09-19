@@ -12,10 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npm run check` | TypeScript type checking |
 | `npm run db:generate` | Generate a migration in `migrations/` from a `shared/schema.ts` change |
 | `npm run db:push` | Push the schema straight to the DB — **throwaway local DBs only, see the warning below** |
+| `npm test` | Run the vitest suite (`shared/split`, `server/settlement`, `client/src/lib/export`, `tests/api`) |
 
 > **Never run `db:push` against a database the server will start against — including the production Turso DB.** Schema is normally applied by the server itself at startup (`server/index.ts` runs `migrate()`, and `deploy/Dockerfile`'s `CMD` is just `node dist/index.cjs`). `drizzle-kit push` changes the schema *without* writing `__drizzle_migrations`, so the next startup replays the same `ALTER TABLE` and dies on `duplicate column name`. To change the schema, run `db:generate` and commit the migration.
 
-There is no test runner configured in this project.
+Tests run on **vitest** (`npm test`, config in [vitest.config.ts](vitest.config.ts)). Coverage is narrow — the split algorithm, the settlement calculation, the export formatters and the API routes — there are no component or end-to-end tests.
 
 ### Mobile app (`mobile/`)
 
@@ -50,7 +51,7 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/
 
 ## Key Logic
 
-**Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`.
+**Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`. Each row of the transfer list expands on tap (single-open accordion) into the sender's derivation: 立替合計 − 負担合計 = その人の収支, plus a per-payment table. That detail must stay exact, so the client reuses the server's own share allocation: `computeShares()` lives in [shared/split.ts](shared/split.ts) and [server/settlement.ts](server/settlement.ts) re-exports it — never reimplement it on the client.
 
 **Settling and un-settling**: `POST /api/events/:id/settle` and `POST /api/events/:id/unsettle` are both **general routes** — anyone with the keyword can settle and un-settle, matching the rest of the app's access model. Settling locks payment/member writes, so leaving the reverse admin-only stranded users with no recovery path. The admin route `PATCH /api/admin/events/:id/settlement` is kept for operations. Destructive actions stay admin-only: deleting an event (`DELETE /api/admin/events/:id`) and deleting a member (`DELETE /api/admin/events/:id/members/:memberId`).
 
