@@ -46,7 +46,7 @@ const STEPS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Wallet,
     title: "記録して精算",
-    body: "支払いを記録すると、誰が誰にいくら払えばいいかを最小の回数で自動計算します。",
+    body: "支払いを記録すると、誰が誰にいくら払えばいいかを最小の回数で自動計算。メンバー名をタップすれば、受け取り方の希望も添えられます。",
   },
 ];
 
@@ -153,6 +153,32 @@ const FAQ_CATEGORIES: FaqCategory[] = [
           </>
         ),
         searchText: "均等 比率 金額指定 傾斜 端数 割合 おごり 多めに払う",
+      },
+      {
+        id: "payout-preference",
+        question: "お金の受け取り方（振込・PayPayなど）を伝えられますか？",
+        answer: (
+          <>
+            できます。イベント画面の上部に並んでいる<strong className="font-semibold text-foreground">メンバー名をタップ</strong>すると、
+            「銀行振込／PayPay／現金で手渡し／どれでもいい」から希望を選べます。
+            選んだ希望は名前の横にアイコンで表示され、精算結果の送金リストにも
+            「受け取り方」として並ぶので、送る人が迷いません。精算後でも変更できます。
+          </>
+        ),
+        searchText: "受け取り方 受取方法 振込 銀行振込 お振込 PayPay ペイペイ 現金 手渡し 支払い方法 メンバー名をタップ 名前を押す 送金リスト 受け取り希望",
+      },
+      {
+        id: "payout-privacy",
+        question: "口座番号やPayPay IDも登録できますか？",
+        answer: (
+          <>
+            できません。保存されるのは「銀行振込」「PayPay」などの<strong className="font-semibold text-foreground">手段だけ</strong>で、
+            口座番号や PayPay ID はどこにも保存されません。
+            合言葉を知っている人は全員がこの内容を見られるため、
+            具体的な宛先は当事者同士で直接やり取りしてください。
+          </>
+        ),
+        searchText: "口座番号 PayPay ID 個人情報 保存されない セキュリティ 安全 振込先 宛先 合言葉",
       },
       {
         id: "share-result",

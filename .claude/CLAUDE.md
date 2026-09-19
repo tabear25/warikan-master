@@ -12,10 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npm run check` | TypeScript type checking |
 | `npm run db:generate` | Generate a migration in `migrations/` from a `shared/schema.ts` change |
 | `npm run db:push` | Push the schema straight to the DB — **throwaway local DBs only, see the warning below** |
+| `npm test` | Run the vitest suite (`shared/split`, `server/settlement`, `client/src/lib/export`, `tests/api`) |
 
 > **Never run `db:push` against a database the server will start against — including the production Turso DB.** Schema is normally applied by the server itself at startup (`server/index.ts` runs `migrate()`, and `deploy/Dockerfile`'s `CMD` is just `node dist/index.cjs`). `drizzle-kit push` changes the schema *without* writing `__drizzle_migrations`, so the next startup replays the same `ALTER TABLE` and dies on `duplicate column name`. To change the schema, run `db:generate` and commit the migration.
 
-There is no test runner configured in this project.
+Tests run on **vitest** (`npm test`, config in [vitest.config.ts](vitest.config.ts)). Coverage is narrow — the split algorithm, the settlement calculation, the export formatters and the API routes — there are no component or end-to-end tests.
 
 ### Mobile app (`mobile/`)
 
@@ -42,7 +43,7 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/
 
 **Database tables**: `events`, `members`, `payments`, `schedule_items`. The `payments.splitMemberIds` column stores a JSON array of member IDs.
 
-**Payout preference**: `members.payoutPreference` (nullable, `bank` / `paypay` / `cash` / `any`) records how a member wants to be paid back; it is shown on the member chips and under each row of the settlement transfer list. **Deliberately stores the method only — never an account number, a PayPay ID, or any other concrete handle.** Anyone who knows the event keyword can read and edit every member's value (the app never binds a device to a person), so nothing that would hurt if leaked belongs in this column. Do not "improve" this by adding a free-text detail field without revisiting that trade-off. Editing stays allowed on settled events, because transfers happen *after* settlement.
+**Payout preference**: `members.payoutPreference` (nullable, `bank` / `paypay` / `cash` / `any`) records how a member wants to be paid back; it is shown on the member chips and under each row of the settlement transfer list. The only entry point is tapping a member chip, so unset chips carry a faded wallet icon and a one-line hint sits under the members bar and under the transfer list — both vanish once any member has a value set. The feature is documented in the help page FAQ (`payout-preference` / `payout-privacy` in [client/src/pages/help.tsx](client/src/pages/help.tsx)); keep that copy in step with the UI. **Deliberately stores the method only — never an account number, a PayPay ID, or any other concrete handle.** Anyone who knows the event keyword can read and edit every member's value (the app never binds a device to a person), so nothing that would hurt if leaked belongs in this column. Do not "improve" this by adding a free-text detail field without revisiting that trade-off. Editing stays allowed on settled events, because transfers happen *after* settlement.
 
 **Trip schedule feature**: `events.type` (`trip` / `meal` / `other`, default `other`) gates the trip-itinerary feature — only `trip` events show the schedule tab. `schedule_items` holds accommodation / transport / other entries; per-category details (mode, from/to, reservation number, …) live in its `metadata` JSON column so new categories need no schema change. A schedule item converts into a payment via `POST /api/events/:id/payments` with an optional `scheduleItemId` — this links both sides bidirectionally (`payments.schedule_item_id` ↔ `schedule_items.payment_id`) in a transaction; deleting either side only clears the link on the other. Schedule editing stays allowed on settled events (only the payments side is locked). Requirements + implementation decisions: [docs/travel-feature-requirements.md](docs/travel-feature-requirements.md) §11.
 
@@ -50,7 +51,7 @@ Full-stack TypeScript application: React (client) + Express 5 (server) + libSQL/
 
 ## Key Logic
 
-**Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`.
+**Settlement algorithm** ([server/routes.ts](server/routes.ts), `calculateSettlement()`): Greedy minimization — computes each member's net balance, then iteratively matches the largest debtor with the largest creditor to produce the minimum number of transfers. Floating-point tolerance is `0.01`. Each row of the transfer list expands on tap (single-open accordion) into the sender's derivation: 立替合計 − 負担合計 = その人の収支, plus a per-payment table. That detail must stay exact, so the client reuses the server's own share allocation: `computeShares()` lives in [shared/split.ts](shared/split.ts) and [server/settlement.ts](server/settlement.ts) re-exports it — never reimplement it on the client.
 
 **Settling and un-settling**: `POST /api/events/:id/settle` and `POST /api/events/:id/unsettle` are both **general routes** — anyone with the keyword can settle and un-settle, matching the rest of the app's access model. Settling locks payment/member writes, so leaving the reverse admin-only stranded users with no recovery path. The admin route `PATCH /api/admin/events/:id/settlement` is kept for operations. Destructive actions stay admin-only: deleting an event (`DELETE /api/admin/events/:id`) and deleting a member (`DELETE /api/admin/events/:id/members/:memberId`).
 

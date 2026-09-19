@@ -1,5 +1,9 @@
 import type { Payment } from "@shared/schema";
-import { splitYen } from "@shared/split";
+import { computeShares } from "@shared/split";
+
+// 割り当ての本体は @shared/split にある（クライアントの送金リスト詳細も同じものを使う）。
+// 既存の import 先を変えずに済むよう、ここからも再エクスポートする。
+export { computeShares };
 
 export interface Transfer {
   from: string;
@@ -10,36 +14,6 @@ export interface Transfer {
 export interface SettlementResult {
   transfers: Transfer[];
   balances: Record<number, number>;
-}
-
-/**
- * Compute the per-member integer-yen share for a single payment, dispatching on
- * its split mode. Legacy rows (no `splitMode` / `splitDetails`) are treated as
- * an equal split, preserving historical behaviour.
- */
-export function computeShares(payment: Payment): Map<number, number> {
-  const participants: number[] = JSON.parse(payment.splitMemberIds);
-  const total = Math.round(payment.amount);
-  const mode = payment.splitMode ?? "equal";
-
-  if (mode === "amount" && payment.splitDetails) {
-    const detail = JSON.parse(payment.splitDetails) as Record<string, number>;
-    const shares = new Map<number, number>();
-    participants.forEach((id) => shares.set(id, Math.round(detail[String(id)] ?? 0)));
-    return shares;
-  }
-
-  if (mode === "ratio" && payment.splitDetails) {
-    const detail = JSON.parse(payment.splitDetails) as Record<string, number>;
-    const weights: Record<number, number> = {};
-    participants.forEach((id) => {
-      weights[id] = detail[String(id)] ?? 0;
-    });
-    return splitYen(total, participants, weights);
-  }
-
-  // equal (also covers all legacy rows)
-  return splitYen(total, participants);
 }
 
 /**
