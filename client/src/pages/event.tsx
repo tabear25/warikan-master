@@ -1001,6 +1001,16 @@ function SettlementSection({
                     </div>
                   );
                 })}
+                {/* 送金リストを見て「どう払えば？」となる場面なので、未設定のときだけ入口を案内する */}
+                {settlement && settlement.transfers.length > 0 &&
+                  !settlement.transfers.some((t) => payoutPreferenceByName.get(t.to)) && (
+                  <p
+                    className="pt-1 text-[11px] leading-relaxed text-muted-foreground"
+                    data-testid="text-settlement-payout-hint"
+                  >
+                    受け取り方（銀行振込・PayPayなど）は、メンバー名をタップすると登録できます（精算後も変更できます）
+                  </p>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -1192,6 +1202,10 @@ export default function EventPage() {
   const paymentList = paymentsQuery.data ?? [];
   const settlement = settlementQuery.data;
 
+  // 受け取り方は名前をタップしないと気づけないので、まだ誰も設定していない間だけ
+  // メンバーバーの下に案内を出す（誰かが設定したら自然に消える）。
+  const showPayoutHint = memberList.length > 0 && memberList.every((m) => !m.payoutPreference);
+
   const isTrip = event?.type === "trip";
   const eventTypeKey: EventType =
     event && (EVENT_TYPES as readonly string[]).includes(event.type) ? (event.type as EventType) : "other";
@@ -1358,48 +1372,66 @@ export default function EventPage() {
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-20 rounded-full" />)}
           </div>
         ) : memberList.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {memberList.map((m) => {
-              const preference = (m.payoutPreference ?? null) as PayoutPreference | null;
-              const PreferenceIcon = preference ? PAYOUT_PREFERENCE_ICON[preference] : null;
-              // 楽観追加中のメンバーは負の仮 ID を持つ（AddMemberDialog の onMutate）。
-              // サーバにまだ存在しないので、押しても必ず 404 になる。保存が済むまで無効化する。
-              const isSaving = m.id < 0;
-              return (
+          <div className="mb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {memberList.map((m) => {
+                const preference = (m.payoutPreference ?? null) as PayoutPreference | null;
+                const PreferenceIcon = preference ? PAYOUT_PREFERENCE_ICON[preference] : null;
+                // 楽観追加中のメンバーは負の仮 ID を持つ（AddMemberDialog の onMutate）。
+                // サーバにまだ存在しないので、押しても必ず 404 になる。保存が済むまで無効化する。
+                const isSaving = m.id < 0;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setPayoutTarget(m)}
+                    disabled={isSaving}
+                    className={cn(
+                      badgeVariants({ variant: "secondary" }),
+                      "gap-1.5 py-0.5 pl-1 pr-2.5",
+                      isSaving && "opacity-60",
+                    )}
+                    data-testid={`badge-member-${m.id}`}
+                    aria-label={
+                      isSaving
+                        ? `${m.name}を保存中`
+                        : preference
+                          ? `${m.name}の受け取り方（${PAYOUT_PREFERENCE_LABELS[preference]}）を変更`
+                          : `${m.name}の受け取り方を設定`
+                    }
+                  >
+                    <MemberAvatar name={m.name} className="h-5 w-5 text-[9px]" />
+                    {m.name}
+                    {/* 未設定のときも薄い財布アイコンを出し、「押せる」ことを見た目で示す */}
+                    {PreferenceIcon ? (
+                      <PreferenceIcon className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                    ) : (
+                      <Wallet className="h-3 w-3 shrink-0 text-muted-foreground/50" aria-hidden />
+                    )}
+                  </button>
+                );
+              })}
+              {!event?.isSettled && memberList.length < 50 && (
                 <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPayoutTarget(m)}
-                  disabled={isSaving}
-                  className={cn(
-                    badgeVariants({ variant: "secondary" }),
-                    "gap-1.5 py-0.5 pl-1 pr-2.5",
-                    isSaving && "opacity-60",
-                  )}
-                  data-testid={`badge-member-${m.id}`}
-                  aria-label={
-                    isSaving
-                      ? `${m.name}を保存中`
-                      : preference
-                        ? `${m.name}の受け取り方（${PAYOUT_PREFERENCE_LABELS[preference]}）を変更`
-                        : `${m.name}の受け取り方を設定`
-                  }
+                  onClick={() => setAddMemberOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary transition-colors duration-200 hover:bg-primary/10"
+                  data-testid="button-add-member"
                 >
-                  <MemberAvatar name={m.name} className="h-5 w-5 text-[9px]" />
-                  {m.name}
-                  {PreferenceIcon && <PreferenceIcon className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />}
+                  <UserPlus className="h-3.5 w-3.5" /> 追加
                 </button>
-              );
-            })}
-            {!event?.isSettled && memberList.length < 50 && (
-              <button
-                onClick={() => setAddMemberOpen(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary transition-colors duration-200 hover:bg-primary/10"
-                data-testid="button-add-member"
+              )}
+            </div>
+            {showPayoutHint && (
+              <p
+                className="mt-1.5 flex items-start gap-1 pl-6 text-[11px] leading-relaxed text-muted-foreground"
+                data-testid="text-payout-hint"
               >
-                <UserPlus className="h-3.5 w-3.5" /> 追加
-              </button>
+                <Wallet className="mt-0.5 h-3 w-3 shrink-0 text-primary" aria-hidden />
+                <span>
+                  メンバー名をタップすると、受け取り方（銀行振込・PayPayなど）の希望を登録できます
+                </span>
+              </p>
             )}
           </div>
         )}
