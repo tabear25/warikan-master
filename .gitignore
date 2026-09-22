@@ -33,3 +33,6 @@ npm-debug.log*
 # リポジトリには含めない。
 docs/*_AUDIT_*.md
 docs/FEATURE_GAP_*.md
+
+# Claude Code のローカル専用設定（マシン固有のパスを含むため共有しない）
+.claude/settings.local.json
