@@ -162,6 +162,10 @@ font-feature-settings: "palt" 1;   /* 対応フォントのみ効く progressive
 | ~~`Aurora`~~ | **v2 で撤去**。ページには置かない（`components/aurora.tsx` は未使用のまま残置） |
 | `ScheduleTab` | 旅行イベントの旅程タイムライン。`DAY 01` マイクロラベル + 日付見出し、左レールは `bg-primary/10` のアイコンドット + `w-px bg-border` の縦線。カードはタップで詳細を展開 |
 | `ScheduleItemDialog` | 予定の追加・編集。カテゴリ 3 択は割り勘モードと同じラジオカード、URL 貼付で OGP を自動補完（取得中はスピナー、失敗しても入力は止めない） |
+| `TransferList` | 送金リストの行（タップで送る人の収支と支払いごとの内訳を開く、同時に1つだけ）。残りの精算と「先に精算した分」の両方で使う。行は `bg-accent/50` + `rounded-xl`、金額は `text-positive` |
+| `PartialSettlementDialog` | 「一部だけ先に精算」。支払いのチェックリスト + 送金額のプレビュー（`bg-accent/50` の `rounded-2xl` 面）+ プライマリ CTA 1つ。旅行イベントでは「宿泊・移動をまとめて選ぶ」チップ（追加系チップと同じ `border-dashed border-primary/40`） |
+| `PartialSettlementHistory` | 精算パネル内の「先に精算した分」カード。区切りごとに日付・件数・合計・送金リスト、右下に ghost の「コピー／取り消す」。操作行は `data-export-exclude="true"` で画像書き出しから外す |
+| 「先に精算済み」バッジ | 先に精算した支払いのカードに付ける `Badge variant="outline"` + `border-positive/30 text-positive` + `CheckCircle2`（精算完了の意味なので money の positive 色）。付いた支払いは編集・削除ボタンを出さない。イベント全体の「精算済み」と紛れないよう、文言は「先に精算済み」にする |
 
 ---
 

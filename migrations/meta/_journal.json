@@ -15,6 +15,13 @@
       "when": 1787401721777,
       "tag": "0001_naive_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790397513486,
+      "tag": "0002_quiet_madripoor",
+      "breakpoints": true
     }
   ]
 }

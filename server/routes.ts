@@ -2,9 +2,14 @@ import type { Express, NextFunction, Request, RequestHandler, Response } from "e
 import { type Server } from "http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { storage as defaultStorage, type IStorage } from "./storage";
+import {
+  storage as defaultStorage,
+  PartialSettlementConflictError,
+  PaymentSettledEarlyError,
+  type IStorage,
+} from "./storage";
 import { verifyAdminCredentials } from "./auth";
-import { calculateSettlement } from "./settlement";
+import { calculateSettlementWithPartials, summarizePartialSettlement } from "./settlement";
 import { fetchOgpMetadata, OgpFetchError } from "./ogp";
 import {
   LIMITS,
@@ -12,8 +17,11 @@ import {
   updateEventInputSchema,
   updateMemberInputSchema,
   paymentInputSchema,
+  partialSettlementInputSchema,
   scheduleItemInputSchema,
   ogpRequestSchema,
+  type PartialSettlement,
+  type Payment,
   type PaymentInput,
   type InsertPayment,
   type InsertEvent,
@@ -634,6 +642,14 @@ export async function registerRoutes(
     if (!payment || payment.eventId !== id) {
       return res.status(404).json({ error: "Payment not found" });
     }
+    // 先に精算した支払いを変えると、その区切りの送金リスト（すでに送金済みかもしれない）
+    // が黙って変わってしまう。変えたいときは区切りを取り消してもらう。
+    // ここは早く返すための事前チェックで、競合時は storage 側の条件付き書き込みが止める。
+    const settledEarlyEditError =
+      "先に精算した支払いは編集できません。変更するには、先に精算した分を取り消してください";
+    if (payment.partialSettlementId != null) {
+      return res.status(400).json({ error: settledEarlyEditError });
+    }
 
     const body = { splitMode: "equal", ...req.body };
     const parsed = paymentInputSchema.safeParse(body);
@@ -646,8 +662,15 @@ export async function registerRoutes(
       return res.status(400).json({ error: memberError });
     }
 
-    const updated = await storage.updatePayment(paymentId, paymentInputToFields(parsed.data));
-    return res.json(updated);
+    try {
+      const updated = await storage.updatePayment(paymentId, paymentInputToFields(parsed.data));
+      return res.json(updated);
+    } catch (err) {
+      if (err instanceof PaymentSettledEarlyError) {
+        return res.status(400).json({ error: settledEarlyEditError });
+      }
+      throw err;
+    }
   });
 
   app.delete("/api/events/:id/payments/:paymentId", async (req, res) => {
@@ -669,8 +692,20 @@ export async function registerRoutes(
     if (!payment || payment.eventId !== id) {
       return res.status(404).json({ error: "Payment not found" });
     }
+    const settledEarlyDeleteError =
+      "先に精算した支払いは削除できません。削除するには、先に精算した分を取り消してください";
+    if (payment.partialSettlementId != null) {
+      return res.status(400).json({ error: settledEarlyDeleteError });
+    }
 
-    await storage.deletePayment(paymentId);
+    try {
+      await storage.deletePayment(paymentId);
+    } catch (err) {
+      if (err instanceof PaymentSettledEarlyError) {
+        return res.status(400).json({ error: settledEarlyDeleteError });
+      }
+      throw err;
+    }
     return res.json({ success: true });
   });
 
@@ -818,11 +853,109 @@ export async function registerRoutes(
       return res.status(404).json({ error: "Event not found" });
     }
 
-    const eventMembers = await storage.getMembersByEvent(id);
-    const eventPayments = await storage.getPaymentsByEvent(id);
-    const result = calculateSettlement(eventMembers, eventPayments);
+    // 3つは互いに依存しないので並べて取る（本番はリモートの Turso なので往復がそのまま遅延になる）。
+    const [eventMembers, eventPayments, eventPartials] = await Promise.all([
+      storage.getMembersByEvent(id),
+      storage.getPaymentsByEvent(id),
+      storage.getPartialSettlementsByEvent(id),
+    ]);
+    // transfers / balances は「残り（未精算分）」で、先に精算した分は partialSettlements に
+    // 区切りごとに入る。部分精算の無いイベントでは従来どおり全支払いの精算になる
+    // （モバイル版は transfers / balances だけを読むので、そのまま動く）。
+    const result = calculateSettlementWithPartials(eventMembers, eventPayments, eventPartials);
 
     return res.json(result);
+  });
+
+  // 部分精算（例: 3か月先の旅行で、ホテル代と飛行機代だけ先に精算する）。
+  // 選んだ支払いだけで送金リストを作り、それらを「先に精算済み」にする。含めた支払いは
+  // 残りの精算から外れ、区切りを取り消すまで編集・削除できない。イベント自体は
+  // ロックしないので、旅行中の支払いはこれまでどおり追加できる。
+  // 誰が操作できるかは settle / unsettle と同じく合言葉モデル（管理者認証なし）。
+  app.post("/api/events/:id/partial-settlements", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "Invalid event ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    if (event.isSettled) {
+      return res.status(400).json({ error: "精算済みのイベントでは部分精算できません" });
+    }
+
+    const parsed = partialSettlementInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+
+    // 重複を除いておく（storage 側で更新件数と突き合わせるため）。
+    const paymentIds = Array.from(new Set(parsed.data.paymentIds));
+    // メンバーは作成より前に取っておく。コミット後の読み取りで失敗すると、区切りは
+    // できたのに 500 が返り、やり直すと 409 になってしまうため。
+    const [eventPayments, eventMembers] = await Promise.all([
+      storage.getPaymentsByEvent(id),
+      storage.getMembersByEvent(id),
+    ]);
+    const paymentsById = new Map(eventPayments.map((payment) => [payment.id, payment]));
+    for (const paymentId of paymentIds) {
+      const payment = paymentsById.get(paymentId);
+      if (!payment) {
+        return res.status(404).json({ error: "選んだ支払いが見つかりません。画面を更新してやり直してください" });
+      }
+      if (payment.partialSettlementId != null) {
+        return res.status(409).json({ error: "すでに先に精算した支払いが含まれています" });
+      }
+    }
+
+    let created: { partial: PartialSettlement; payments: Payment[] };
+    try {
+      created = await storage.createPartialSettlement(
+        { eventId: id, createdAt: new Date().toISOString() },
+        paymentIds,
+      );
+    } catch (err) {
+      // 事前チェックとの間に、別の部分精算が同じ支払いを取った場合。
+      if (err instanceof PartialSettlementConflictError) {
+        return res.status(409).json({ error: err.message });
+      }
+      throw err;
+    }
+
+    // 応答は、実際に区切りに入った内容（トランザクション内で読み直した支払い）から組み立てる。
+    return res
+      .status(201)
+      .json(summarizePartialSettlement(eventMembers, created.partial, created.payments));
+  });
+
+  // 部分精算の取り消し。含めていた支払いは未精算に戻り、残りの精算に合算される。
+  // イベント全体が精算済みの間は取り消せない（締めた送金リストが黙って変わるため）。
+  app.delete("/api/events/:id/partial-settlements/:partialId", writeLimiter, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    const partialId = parseInt(String(req.params.partialId), 10);
+    if (isNaN(id) || isNaN(partialId)) {
+      return res.status(400).json({ error: "Invalid ID" });
+    }
+
+    const event = await storage.getEvent(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    if (event.isSettled) {
+      return res.status(400).json({
+        error: "精算済みのイベントでは部分精算を取り消せません。先に精算を取り消してください",
+      });
+    }
+
+    const partial = await storage.getPartialSettlement(partialId);
+    if (!partial || partial.eventId !== id) {
+      return res.status(404).json({ error: "部分精算が見つかりません" });
+    }
+
+    await storage.deletePartialSettlement(partialId, id);
+    return res.json({ success: true });
   });
 
   app.post("/api/events/:id/settle", writeLimiter, async (req, res) => {

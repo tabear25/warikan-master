@@ -11,6 +11,7 @@
 - **支払い記録** — 誰が・いくら・何に支払ったかを随時入力
 - **柔軟な割り勘** — 全員で割り勘 or 特定メンバーだけで割り勘をその都度選択
 - **自動精算** — 最小回数の送金リストを算出するグリーディアルゴリズム
+- **部分精算** — 旅行前にホテル代・飛行機代だけ先に精算するなど、選んだ支払いだけを先に精算（残りはあとでまとめて精算）
 - **管理者パネル** — ID/PW 認証付き、全イベントの一覧・削除
 
 ## 技術スタック
@@ -58,19 +59,6 @@ npm run dev
 | `npm test` | vitest でテストを実行 |
 | `npm run db:generate` | `shared/schema.ts` の変更から `migrations/` を生成 |
 | `npm run db:push` | スキーマを DB へ直接反映（**使い捨てのローカル DB 専用**。下記の注意を読むこと） |
-
-> **`db:push` の注意**
->
-> スキーマの適用は、通常は**サーバ起動時の自動マイグレーション**が行います（`server/index.ts`）。
-> 手順として `db:push` を実行する必要はありません。
->
-> `drizzle-kit push` はスキーマを直接反映する一方で、適用済みを記録する `__drizzle_migrations`
-> テーブルを更新しません。そのため一度でも打つと、次回の起動時マイグレーションが
-> 「まだ適用していない」と判断して同じ `ALTER TABLE` を流し、`duplicate column name` で
-> **サーバが起動しなくなります**。
->
-> 特に、`.env` に本番 Turso の認証情報を入れた状態で打つと本番 DB がこの状態になります。
-> スキーマを変えたいときは `npm run db:generate` でマイグレーションを作ってください。
 
 ## 本番デプロイ
 
@@ -183,5 +171,7 @@ warikan-master/
 | GET | `/api/events/:id/payments` | 支払い一覧 |
 | POST | `/api/events/:id/payments` | 支払い追加 |
 | DELETE | `/api/events/:id/payments/:paymentId` | 支払い削除 |
-| GET | `/api/events/:id/settlement` | 精算結果計算 |
+| GET | `/api/events/:id/settlement` | 精算結果計算（残りの精算 + 先に精算した分） |
+| POST | `/api/events/:id/partial-settlements` | 部分精算（選んだ支払いだけ先に精算） |
+| DELETE | `/api/events/:id/partial-settlements/:partialId` | 部分精算の取り消し |
 | POST | `/api/events/:id/settle` | 精算確定 |

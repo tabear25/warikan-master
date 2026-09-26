@@ -36,21 +36,30 @@ import {
   Plus, PlusCircle, Trash2, Users, Receipt, ArrowRight, CheckCircle2,
   Wallet, Pencil, Share2, Copy, Check, UserPlus, FileDown, Image as ImageIcon, ClipboardCopy,
   Scale, Coins, SplitSquareHorizontal, KeyRound, CalendarDays, RotateCcw, Landmark, Smartphone,
-  Banknote, ChevronDown,
+  Banknote, ChevronDown, ListChecks,
 } from "lucide-react";
-import type { Event, EventType, Member, Payment, PayoutPreference, SplitMode } from "@shared/schema";
+import type { Event, EventType, Member, Payment, PayoutPreference, ScheduleItem, SplitMode } from "@shared/schema";
 import { EVENT_TYPES, MAX_SPLIT_WEIGHT, PAYOUT_PREFERENCES, PAYOUT_PREFERENCE_LABELS } from "@shared/schema";
 import { computeShares, splitYen } from "@shared/split";
+import {
+  calculateSettlement,
+  type PartialSettlementSummary,
+  type SettlementResult,
+  type SettlementWithPartials,
+  type Transfer,
+} from "@shared/settlement";
 import { formatYen, formatSignedYen } from "@/lib/currency";
 import { CountUp } from "@/components/count-up";
 import { fireConfetti } from "@/lib/confetti";
 import {
+  buildPartialSettlementText,
   buildSettlementCsv,
   buildSettlementText,
   copyToClipboard,
   downloadTextFile,
   triggerDownload,
   safeFileName,
+  type PartialSettlementExport,
 } from "@/lib/export";
 
 import { SPRING, SPRING_SLOW, fadeUp, stagger } from "@/lib/motion";
@@ -149,6 +158,7 @@ function PaymentDialog({ open, onOpenChange, eventId, members, payment, prefill 
             ? JSON.stringify(data.amounts)
             : null,
         scheduleItemId: (data.scheduleItemId as number | undefined) ?? payment?.scheduleItemId ?? null,
+        partialSettlementId: payment?.partialSettlementId ?? null,
         createdAt: payment?.createdAt ?? new Date().toISOString(),
       };
       queryClientHook.setQueryData<Payment[]>(paymentsKey, (old = []) =>
@@ -757,6 +767,195 @@ function EventSettingsDialog({ open, onOpenChange, event }: { open: boolean; onO
 }
 
 // ---------------------------------------------------------------------------
+// 部分精算ダイアログ（例: 3か月先の旅行で、ホテル代と飛行機代だけ先に精算する）
+// 選んだ支払いだけで送金リストを作る。プレビューはサーバと同じ calculateSettlement
+// で計算するので、確定後に表示される送金額と一致する。
+// ---------------------------------------------------------------------------
+function PartialSettlementDialog({
+  open,
+  onOpenChange,
+  event,
+  members,
+  payments,
+  pending,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  event: Event;
+  members: Member[];
+  /** まだどの区切りにも含まれていない支払い */
+  payments: Payment[];
+  pending: boolean;
+  onSubmit: (paymentIds: number[]) => void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (open) setSelectedIds([]);
+  }, [open]);
+
+  // 楽観追加中の支払い（負の仮 ID）はサーバにまだ無いので選ばせない。
+  const selectable = useMemo(
+    () => payments.filter((payment) => payment.id > 0).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [payments],
+  );
+
+  // 旅程から割り勘に追加した宿泊・移動の支払いを、まとめて選べるようにする
+  // （「ホテル代と飛行機代だけ先に」の近道）。旅行イベントのときだけ取得する。
+  // ScheduleTab と同じクエリキーなので、旅程タブを開いていればキャッシュが使われる。
+  const isTrip = event.type === "trip";
+  const scheduleQuery = useQuery<ScheduleItem[]>({
+    queryKey: ["/api/events", event.id, "schedule"],
+    queryFn: async () => (await apiRequest("GET", `/api/events/${event.id}/schedule`)).json(),
+    enabled: open && isTrip,
+  });
+  const lodgingAndTransportIds = useMemo(() => {
+    const itemIds = new Set(
+      (scheduleQuery.data ?? [])
+        .filter((item) => item.category === "accommodation" || item.category === "transport")
+        .map((item) => item.id),
+    );
+    return selectable
+      .filter((payment) => payment.scheduleItemId != null && itemIds.has(payment.scheduleItemId))
+      .map((payment) => payment.id);
+  }, [scheduleQuery.data, selectable]);
+
+  const selected = selectable.filter((payment) => selectedIds.includes(payment.id));
+  const selectedTotal = selected.reduce((acc, payment) => acc + Math.round(payment.amount), 0);
+  let preview: SettlementResult | null = null;
+  try {
+    preview = selected.length > 0 ? calculateSettlement(members, selected) : null;
+  } catch {
+    // 内訳の JSON が壊れた支払いがあっても、ダイアログ自体は開けるようにする。
+    preview = null;
+  }
+
+  const allSelected = selectable.length > 0 && selected.length === selectable.length;
+  const toggle = (paymentId: number) =>
+    setSelectedIds((prev) => (prev.includes(paymentId) ? prev.filter((id) => id !== paymentId) : [...prev, paymentId]));
+  const getMemberName = (memberId: number) => members.find((m) => m.id === memberId)?.name ?? "不明";
+
+  return (
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="一部だけ先に精算"
+      description="選んだ支払いだけで送金リストを作ります。残りの支払いは、あとでまとめて精算できます"
+      testId="dialog-partial-settlement"
+    >
+      <div className="space-y-4 pt-1">
+        {selectable.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">先に精算できる支払いがありません</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {lodgingAndTransportIds.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds((prev) => Array.from(new Set(prev.concat(lodgingAndTransportIds))))}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary transition-colors duration-200 hover:bg-primary/10"
+                  data-testid="button-select-lodging-transport"
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  宿泊・移動をまとめて選ぶ
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedIds(allSelected ? [] : selectable.map((payment) => payment.id))}
+                className="text-xs font-semibold text-primary underline-offset-4 hover:underline"
+                data-testid="button-toggle-all-partial"
+              >
+                {allSelected ? "全部はずす" : "全部選ぶ"}
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {selectable.map((payment) => {
+                const checked = selectedIds.includes(payment.id);
+                const payerName = getMemberName(payment.payerId);
+                return (
+                  <div
+                    key={payment.id}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-150",
+                      checked && "bg-accent/60",
+                    )}
+                  >
+                    <Checkbox
+                      id={`partial-payment-${payment.id}`}
+                      checked={checked}
+                      onCheckedChange={() => toggle(payment.id)}
+                      data-testid={`checkbox-partial-payment-${payment.id}`}
+                    />
+                    <MemberAvatar name={payerName} className="h-6 w-6 text-[10px]" />
+                    <label htmlFor={`partial-payment-${payment.id}`} className="min-w-0 flex-1 cursor-pointer">
+                      <span className="flex items-center gap-1">
+                        <span className="truncate text-sm font-medium text-foreground">{payment.description}</span>
+                        {payment.scheduleItemId != null && (
+                          <CalendarDays className="h-3 w-3 shrink-0 text-primary" aria-label="旅程から追加した支払い" />
+                        )}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{payerName} が支払い</span>
+                    </label>
+                    <span className="money shrink-0 text-sm font-semibold tabular-nums text-foreground">{formatYen(payment.amount)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {preview && (
+              <div className="space-y-2 rounded-2xl bg-accent/50 p-3" data-testid="partial-settlement-preview">
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="font-semibold text-foreground">この内容で精算すると</span>
+                  <span className="text-muted-foreground">
+                    {selected.length}件 · 合計{" "}
+                    <span className="money font-bold tabular-nums text-foreground">{formatYen(selectedTotal)}</span>
+                  </span>
+                </div>
+                {preview.transfers.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">送金は不要です（選んだ支払いの中で収支が釣り合っています）</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {preview.transfers.map((t, i) => (
+                      <li key={i} className="flex items-center gap-1.5 text-xs" data-testid={`partial-preview-transfer-${i}`}>
+                        <MemberAvatar name={t.from} className="h-5 w-5 text-[9px]" />
+                        <span className="min-w-0 truncate font-medium text-foreground">{t.from}</span>
+                        <ArrowRight className="h-3 w-3 shrink-0 text-primary" aria-hidden />
+                        <MemberAvatar name={t.to} className="h-5 w-5 text-[9px]" />
+                        <span className="min-w-0 truncate font-medium text-foreground">{t.to}</span>
+                        <span className="money ml-auto shrink-0 font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              選んだ支払いは「先に精算済み」になり、取り消すまで編集・削除できなくなります。
+            </p>
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              disabled={pending || selected.length === 0}
+              onClick={() => onSubmit(selected.map((payment) => payment.id))}
+              data-testid="button-submit-partial-settlement"
+            >
+              {pending ? "精算中..." : selected.length > 0 ? `${selected.length}件を先に精算する` : "支払いを選んでください"}
+            </Button>
+          </>
+        )}
+      </div>
+    </ResponsiveDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 各自の収支バー
 // ---------------------------------------------------------------------------
 function BalanceBar({ name, balance, max }: { name: string; balance: number; max: number }) {
@@ -805,10 +1004,9 @@ function BalanceBar({ name, balance, max }: { name: string; balance: number; max
 // ---------------------------------------------------------------------------
 // 精算セクション（モバイル＝タブ内 / デスクトップ＝右カラム常時表示 で共用）
 // ---------------------------------------------------------------------------
-interface SettlementData {
-  transfers: Array<{ from: string; to: string; amount: number }>;
-  balances: Record<number, number>;
-}
+// GET /api/events/:id/settlement の形。transfers / balances は残り（未精算分）で、
+// 先に精算した分（部分精算）は partialSettlements に区切りごとに入る。
+type SettlementData = SettlementWithPartials;
 
 // 受け取り方の希望に添えるアイコン。ラベルの正本は @shared/schema の
 // PAYOUT_PREFERENCE_LABELS 側で、ここは見た目だけを持つ。
@@ -834,6 +1032,295 @@ interface MemberBreakdown {
   rows: BreakdownRow[];
 }
 
+// 支払いをメンバー別に組み直し、「なぜこの金額？」に答えられる形にする。
+// 割り勘の配分はサーバの精算と同じ computeShares を使うので、ここの合計は
+// 同じ支払いから計算した balances と必ず一致する。
+function buildBreakdownByName(memberList: Member[], payments: Payment[]): Map<string, MemberBreakdown> {
+  const byId = new Map<number, MemberBreakdown>();
+  memberList.forEach((m) => byId.set(m.id, { paidTotal: 0, shareTotal: 0, rows: [] }));
+
+  const ordered = [...payments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  for (const payment of ordered) {
+    let shares: Map<number, number>;
+    try {
+      shares = computeShares(payment);
+    } catch {
+      // splitMemberIds / splitDetails は JSON 文字列。壊れていても詳細が
+      // 開けなくなるだけで済むよう、その1件を飛ばす。
+      continue;
+    }
+    const total = Math.round(payment.amount);
+    // スプレッドは tsconfig の target だと Map の iterator を展開できないので forEach で集める。
+    const involved = new Set<number>([payment.payerId]);
+    shares.forEach((_, memberId) => involved.add(memberId));
+    involved.forEach((memberId) => {
+      const entry = byId.get(memberId);
+      if (!entry) return; // 削除済みメンバーは収支にも現れないので無視
+      const paid = payment.payerId === memberId ? total : 0;
+      const share = shares.get(memberId) ?? 0;
+      if (paid === 0 && share === 0) return; // 重み 0 の参加者は行を作らない
+      entry.paidTotal += paid;
+      entry.shareTotal += share;
+      entry.rows.push({ paymentId: payment.id, description: payment.description, paid, share });
+    });
+  }
+
+  // transfers は相手を名前で指す。メンバー名はイベント内で重複禁止
+  // （POST /api/events/:id/members が 409 を返す）なので、名前をキーにして衝突しない。
+  return new Map(
+    memberList.map((m) => [m.name, byId.get(m.id) as MemberBreakdown]),
+  );
+}
+
+// 送金リストの行。タップすると、送る人の収支（立替合計 − 負担合計）と支払いごとの
+// 内訳を開く（アコーディオンと同じく同時に1つだけ）。残りの精算と、先に精算した
+// 区切りの両方で使う。
+function TransferList({
+  transfers,
+  memberList,
+  payments,
+  testIdPrefix = "",
+}: {
+  transfers: Transfer[];
+  memberList: Member[];
+  /** この送金リストの元になった支払い（内訳の計算に使う） */
+  payments: Payment[];
+  /** 複数のリストを並べたときに testid / id が衝突しないようにする接頭辞 */
+  testIdPrefix?: string;
+}) {
+  const payoutPreferenceByName = new Map(
+    memberList.map((m) => [m.name, (m.payoutPreference ?? null) as PayoutPreference | null]),
+  );
+  const [openTransfer, setOpenTransfer] = useState<number | null>(null);
+  const breakdownByName = useMemo(() => buildBreakdownByName(memberList, payments), [memberList, payments]);
+
+  return (
+    <>
+      {transfers.map((t, i) => {
+        const preference = payoutPreferenceByName.get(t.to) ?? null;
+        const detail = breakdownByName.get(t.from) ?? null;
+        const balance = detail ? detail.paidTotal - detail.shareTotal : 0;
+        const isOpen = openTransfer === i;
+        const detailId = `${testIdPrefix}transfer-detail-${i}`;
+        return (
+          <div key={i} className="overflow-hidden rounded-xl bg-accent/50" data-testid={`${testIdPrefix}transfer-${i}`}>
+            <button
+              type="button"
+              onClick={() => setOpenTransfer(isOpen ? null : i)}
+              aria-expanded={isOpen}
+              aria-controls={detailId}
+              className="w-full p-2.5 text-left transition-colors duration-200 hover:bg-accent/80"
+              data-testid={`${testIdPrefix}button-transfer-${i}`}
+            >
+              <div className="flex items-center gap-2">
+                <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
+                <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+                <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
+                <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
+                <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                    isOpen && "rotate-180",
+                  )}
+                  aria-hidden
+                />
+              </div>
+              {preference && (
+                <p
+                  className="mt-1.5 pl-9 text-[11px] text-muted-foreground"
+                  data-testid={`${testIdPrefix}transfer-payout-${i}`}
+                >
+                  受け取り方: {PAYOUT_PREFERENCE_LABELS[preference]}
+                </p>
+              )}
+            </button>
+
+            <AnimatePresence initial={false}>
+              {isOpen && detail && (
+                <motion.div
+                  id={detailId}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="overflow-hidden"
+                  data-testid={detailId}
+                >
+                  <div className="space-y-3 border-t border-border/60 px-2.5 pb-3 pt-2.5">
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold text-foreground">{t.from}の収支</p>
+                      <dl className="space-y-0.5 text-[11px]">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <dt className="text-muted-foreground">立て替えた合計</dt>
+                          <dd className="money tabular-nums text-foreground">{formatYen(detail.paidTotal)}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <dt className="text-muted-foreground">割り勘の負担</dt>
+                          <dd className="money tabular-nums text-foreground">{formatYen(detail.shareTotal)}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-t border-border/60 pt-1 font-semibold">
+                          <dt className="text-muted-foreground">差引</dt>
+                          <dd className={cn("money tabular-nums", balance >= 0 ? "text-positive" : "text-negative")}>
+                            {formatSignedYen(balance)}
+                          </dd>
+                        </div>
+                      </dl>
+                      {/* 貪欲法では1人の不足が複数の送金に分かれる。差引と送金額が
+                          合わないときだけ、その理由を書き足す。 */}
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {balance < 0 && -balance !== t.amount
+                          ? `不足している${formatYen(-balance)}のうち、${formatYen(t.amount)}を${t.to}さんへ（残りはほかの人へ）`
+                          : `この不足分を${t.to}さんへ送ると精算完了です`}
+                      </p>
+                    </div>
+
+                    {detail.rows.length > 0 && (
+                      <div>
+                        <p className="mb-1 text-[11px] font-semibold text-foreground">
+                          支払いごとの内訳（{detail.rows.length}件）
+                        </p>
+                        <div className="space-y-0.5">
+                          <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[10px] font-semibold text-muted-foreground">
+                            <span>内容</span>
+                            <span className="text-right">立替</span>
+                            <span className="text-right">負担</span>
+                          </div>
+                          {detail.rows.map((row) => (
+                            <div
+                              key={row.paymentId}
+                              className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[11px]"
+                              data-testid={`${testIdPrefix}transfer-detail-row-${row.paymentId}`}
+                            >
+                              <span className="truncate text-foreground">{row.description}</span>
+                              <span className="money text-right tabular-nums text-muted-foreground">
+                                {row.paid > 0 ? formatYen(row.paid) : "—"}
+                              </span>
+                              <span className="money text-right tabular-nums text-foreground">
+                                {row.share > 0 ? formatYen(row.share) : "—"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// 部分精算の作成日時（ISO 文字列）を「9/26（土）14:05」の形にする。端末のローカル時刻で数える。
+// 時刻まで出すのは、同じ日に2回精算したときに区切り（CSV のセクション名など）を見分けるため。
+function formatSettledOn(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const day = formatShortDate(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`);
+  return `${day}${date.getHours()}:${pad(date.getMinutes())}`;
+}
+
+// ---------------------------------------------------------------------------
+// 先に精算した分（部分精算の履歴）
+// ---------------------------------------------------------------------------
+function PartialSettlementHistory({
+  partials,
+  memberList,
+  paymentsById,
+  canUndo,
+  undoPending,
+  onCopy,
+  onUndo,
+}: {
+  partials: PartialSettlementSummary[];
+  memberList: Member[];
+  paymentsById: Map<number, Payment>;
+  canUndo: boolean;
+  undoPending: boolean;
+  onCopy: (partial: PartialSettlementSummary) => void;
+  onUndo: (partial: PartialSettlementSummary) => void;
+}) {
+  return (
+    <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.18 }}>
+      <Card data-testid="card-partial-settlements">
+        <CardHeader className="pb-2 pt-4">
+          <CardTitle className="text-sm font-bold">先に精算した分</CardTitle>
+          <CardDescription className="text-xs">ここに含めた支払いは、上の精算から除いています</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pb-4">
+          {partials.map((partial, index) => {
+            const included = partial.paymentIds
+              .map((paymentId) => paymentsById.get(paymentId))
+              .filter((payment): payment is Payment => payment !== undefined);
+            return (
+              <div
+                key={partial.id}
+                className={cn("space-y-2", index > 0 && "border-t border-border/60 pt-4")}
+                data-testid={`partial-settlement-${partial.id}`}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-xs font-semibold text-foreground">
+                    {formatSettledOn(partial.createdAt)}に精算 · {partial.paymentIds.length}件
+                  </p>
+                  <span className="money shrink-0 text-sm font-bold tabular-nums text-foreground">{formatYen(partial.total)}</span>
+                </div>
+                {included.length > 0 && (
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    {included.map((payment) => payment.description).join("、")}
+                  </p>
+                )}
+                {partial.transfers.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">この分の送金は不要です（収支が釣り合っています）</p>
+                ) : (
+                  <div className="space-y-2">
+                    <TransferList
+                      transfers={partial.transfers}
+                      memberList={memberList}
+                      payments={included}
+                      testIdPrefix={`partial-${partial.id}-`}
+                    />
+                  </div>
+                )}
+                {/* 画像の書き出しには操作ボタンを写さない（handleDownloadImage の filter） */}
+                <div className="flex justify-end gap-1" data-export-exclude="true">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onCopy(partial)}
+                    data-testid={`button-copy-partial-${partial.id}`}
+                  >
+                    <ClipboardCopy className="h-3.5 w-3.5" /> コピー
+                  </Button>
+                  {canUndo && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      onClick={() => onUndo(partial)}
+                      disabled={undoPending}
+                      data-testid={`button-undo-partial-${partial.id}`}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" /> 取り消す
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
 interface SettlementSectionProps {
   isLoading: boolean;
   event: Event | undefined;
@@ -853,6 +1340,10 @@ interface SettlementSectionProps {
   onSettleClick: () => void;
   unsettlePending: boolean;
   onUnsettleClick: () => void;
+  onPartialSettleClick: () => void;
+  onCopyPartial: (partial: PartialSettlementSummary) => void;
+  undoPartialPending: boolean;
+  onUndoPartialClick: (partial: PartialSettlementSummary) => void;
 }
 
 function SettlementSection({
@@ -874,6 +1365,10 @@ function SettlementSection({
   onSettleClick,
   unsettlePending,
   onUnsettleClick,
+  onPartialSettleClick,
+  onCopyPartial,
+  undoPartialPending,
+  onUndoPartialClick,
 }: SettlementSectionProps) {
   // transfers は名前文字列で相手を指すので、受け取り方の希望も名前で引く。
   // メンバー名はイベント内で重複禁止（POST /api/events/:id/members が 409 を返す）
@@ -882,47 +1377,19 @@ function SettlementSection({
     memberList.map((m) => [m.name, (m.payoutPreference ?? null) as PayoutPreference | null]),
   );
 
-  // 開いている送金行（アコーディオンと同じく同時に1つだけ）。
-  const [openTransfer, setOpenTransfer] = useState<number | null>(null);
-
-  // 支払いをメンバー別に組み直し、「なぜこの金額？」に答えられる形にする。
-  // 割り勘の配分はサーバの精算と同じ computeShares を使うので、ここの
-  // 合計は settlement.balances と必ず一致する。
-  const breakdownByName = useMemo(() => {
-    const byId = new Map<number, MemberBreakdown>();
-    memberList.forEach((m) => byId.set(m.id, { paidTotal: 0, shareTotal: 0, rows: [] }));
-
-    const ordered = [...payments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    for (const payment of ordered) {
-      let shares: Map<number, number>;
-      try {
-        shares = computeShares(payment);
-      } catch {
-        // splitMemberIds / splitDetails は JSON 文字列。壊れていても詳細が
-        // 開けなくなるだけで済むよう、その1件を飛ばす。
-        continue;
-      }
-      const total = Math.round(payment.amount);
-      // スプレッドは tsconfig の target だと Map の iterator を展開できないので forEach で集める。
-      const involved = new Set<number>([payment.payerId]);
-      shares.forEach((_, memberId) => involved.add(memberId));
-      involved.forEach((memberId) => {
-        const entry = byId.get(memberId);
-        if (!entry) return; // 削除済みメンバーは収支にも現れないので無視
-        const paid = payment.payerId === memberId ? total : 0;
-        const share = shares.get(memberId) ?? 0;
-        if (paid === 0 && share === 0) return; // 重み 0 の参加者は行を作らない
-        entry.paidTotal += paid;
-        entry.shareTotal += share;
-        entry.rows.push({ paymentId: payment.id, description: payment.description, paid, share });
-      });
-    }
-
-    // transfers は相手を名前で指す（payoutPreferenceByName と同じ理由で衝突しない）。
-    return new Map(
-      memberList.map((m) => [m.name, byId.get(m.id) as MemberBreakdown]),
-    );
-  }, [memberList, payments]);
+  // 先に精算した分（部分精算）と、残り（どの区切りにも含まれない支払い）。
+  // サーバと同じく「区切りが持つ支払い ID」で分けるので、残りの内訳は
+  // settlement.balances と必ず一致する。
+  const partials = useMemo(() => settlement?.partialSettlements ?? [], [settlement]);
+  const hasPartials = partials.length > 0;
+  const { remainingPayments, paymentsById } = useMemo(() => {
+    const settledIds = new Set<number>();
+    partials.forEach((partial) => partial.paymentIds.forEach((paymentId) => settledIds.add(paymentId)));
+    return {
+      remainingPayments: payments.filter((payment) => !settledIds.has(payment.id)),
+      paymentsById: new Map(payments.map((payment) => [payment.id, payment])),
+    };
+  }, [payments, partials]);
 
   if (isLoading) {
     return (
@@ -997,174 +1464,103 @@ function SettlementSection({
           </Card>
         </motion.div>
 
-        {/* Balance bars */}
-        {settlement && memberList.length > 0 && (
+        {remainingPayments.length === 0 ? (
+          // 支払いがすべて先に精算済み（例: 旅行前にホテル代と飛行機代だけ精算した直後）。
+          // 残りの収支はすべて 0 なので、収支バーと送金リストの代わりにこれだけを出す。
           <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.06 }}>
-            <Card>
-              <CardHeader className="pb-2 pt-4">
-                <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
-                <CardDescription className="text-xs">プラスは受け取り、マイナスは支払い</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3.5 pb-4">
-                {memberList.map((m) => (
-                  <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
-                ))}
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* Transfers */}
-        {settlement?.transfers.length === 0 ? (
-          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
-            <Card className="border-positive/20 bg-positive/5">
+            <Card data-testid="card-no-remaining">
               <CardContent className="py-6 text-center">
                 <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
                   <CheckCircle2 className="h-5 w-5" />
                 </div>
-                <p className="text-sm font-semibold text-foreground">精算不要！</p>
-                <p className="text-xs text-muted-foreground">全員の収支はすでにバランスが取れています</p>
+                <p className="text-sm font-semibold text-foreground">未精算の支払いはありません</p>
+                <p className="text-xs text-muted-foreground">
+                  {event?.isSettled
+                    ? "すべての支払いを先に精算しています"
+                    : "これから追加する支払いは、ここでまとめて精算できます"}
+                </p>
               </CardContent>
             </Card>
           </motion.div>
         ) : (
-          <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
-            <Card>
-              <CardHeader className="pb-2 pt-4">
-                <CardTitle className="text-sm font-bold">送金リスト</CardTitle>
-                <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 pb-4">
-                {settlement?.transfers.map((t, i) => {
-                  const preference = payoutPreferenceByName.get(t.to) ?? null;
-                  const detail = breakdownByName.get(t.from) ?? null;
-                  const balance = detail ? detail.paidTotal - detail.shareTotal : 0;
-                  const isOpen = openTransfer === i;
-                  return (
-                    <div key={i} className="overflow-hidden rounded-xl bg-accent/50" data-testid={`transfer-${i}`}>
-                      <button
-                        type="button"
-                        onClick={() => setOpenTransfer(isOpen ? null : i)}
-                        aria-expanded={isOpen}
-                        aria-controls={`transfer-detail-${i}`}
-                        className="w-full p-2.5 text-left transition-colors duration-200 hover:bg-accent/80"
-                        data-testid={`button-transfer-${i}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <MemberAvatar name={t.from} className="h-7 w-7 text-[10px]" />
-                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.from}</span>
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </span>
-                          <MemberAvatar name={t.to} className="h-7 w-7 text-[10px]" />
-                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{t.to}</span>
-                          <span className="money ml-auto shrink-0 text-sm font-bold tabular-nums text-positive">{formatYen(t.amount)}</span>
-                          <ChevronDown
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-                              isOpen && "rotate-180",
-                            )}
-                            aria-hidden
-                          />
-                        </div>
-                        {preference && (
-                          <p
-                            className="mt-1.5 pl-9 text-[11px] text-muted-foreground"
-                            data-testid={`transfer-payout-${i}`}
-                          >
-                            受け取り方: {PAYOUT_PREFERENCE_LABELS[preference]}
-                          </p>
-                        )}
-                      </button>
+          <>
+            {/* Balance bars */}
+            {settlement && memberList.length > 0 && (
+              <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.06 }}>
+                <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-sm font-bold">各自の収支</CardTitle>
+                    <CardDescription className="text-xs">
+                      {hasPartials
+                        ? "先に精算した分を除いた収支です。プラスは受け取り、マイナスは支払い"
+                        : "プラスは受け取り、マイナスは支払い"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3.5 pb-4">
+                    {memberList.map((m) => (
+                      <BalanceBar key={m.id} name={m.name} balance={Math.round(settlement.balances[m.id] ?? 0)} max={maxAbsBalance} />
+                    ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
-                      <AnimatePresence initial={false}>
-                        {isOpen && detail && (
-                          <motion.div
-                            id={`transfer-detail-${i}`}
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
-                            className="overflow-hidden"
-                            data-testid={`transfer-detail-${i}`}
-                          >
-                            <div className="space-y-3 border-t border-border/60 px-2.5 pb-3 pt-2.5">
-                              <div>
-                                <p className="mb-1 text-[11px] font-semibold text-foreground">{t.from}の収支</p>
-                                <dl className="space-y-0.5 text-[11px]">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <dt className="text-muted-foreground">立て替えた合計</dt>
-                                    <dd className="money tabular-nums text-foreground">{formatYen(detail.paidTotal)}</dd>
-                                  </div>
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <dt className="text-muted-foreground">割り勘の負担</dt>
-                                    <dd className="money tabular-nums text-foreground">{formatYen(detail.shareTotal)}</dd>
-                                  </div>
-                                  <div className="flex items-baseline justify-between gap-2 border-t border-border/60 pt-1 font-semibold">
-                                    <dt className="text-muted-foreground">差引</dt>
-                                    <dd className={cn("money tabular-nums", balance >= 0 ? "text-positive" : "text-negative")}>
-                                      {formatSignedYen(balance)}
-                                    </dd>
-                                  </div>
-                                </dl>
-                                {/* 貪欲法では1人の不足が複数の送金に分かれる。差引と送金額が
-                                    合わないときだけ、その理由を書き足す。 */}
-                                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                                  {balance < 0 && -balance !== t.amount
-                                    ? `不足している${formatYen(-balance)}のうち、${formatYen(t.amount)}を${t.to}さんへ（残りはほかの人へ）`
-                                    : `この不足分を${t.to}さんへ送ると精算完了です`}
-                                </p>
-                              </div>
-
-                              {detail.rows.length > 0 && (
-                                <div>
-                                  <p className="mb-1 text-[11px] font-semibold text-foreground">
-                                    支払いごとの内訳（{detail.rows.length}件）
-                                  </p>
-                                  <div className="space-y-0.5">
-                                    <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[10px] font-semibold text-muted-foreground">
-                                      <span>内容</span>
-                                      <span className="text-right">立替</span>
-                                      <span className="text-right">負担</span>
-                                    </div>
-                                    {detail.rows.map((row) => (
-                                      <div
-                                        key={row.paymentId}
-                                        className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] gap-x-2 text-[11px]"
-                                        data-testid={`transfer-detail-row-${row.paymentId}`}
-                                      >
-                                        <span className="truncate text-foreground">{row.description}</span>
-                                        <span className="money text-right tabular-nums text-muted-foreground">
-                                          {row.paid > 0 ? formatYen(row.paid) : "—"}
-                                        </span>
-                                        <span className="money text-right tabular-nums text-foreground">
-                                          {row.share > 0 ? formatYen(row.share) : "—"}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+            {/* Transfers */}
+            {settlement?.transfers.length === 0 ? (
+              <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
+                <Card className="border-positive/20 bg-positive/5">
+                  <CardContent className="py-6 text-center">
+                    <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-positive/15 text-positive">
+                      <CheckCircle2 className="h-5 w-5" />
                     </div>
-                  );
-                })}
-                {/* 送金リストを見て「どう払えば？」となる場面なので、未設定のときだけ入口を案内する */}
-                {settlement && settlement.transfers.length > 0 &&
-                  !settlement.transfers.some((t) => payoutPreferenceByName.get(t.to)) && (
-                  <p
-                    className="pt-1 text-[11px] leading-relaxed text-muted-foreground"
-                    data-testid="text-settlement-payout-hint"
-                  >
-                    受け取り方（銀行振込・PayPayなど）は、メンバー名をタップすると登録できます（精算後も変更できます）
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+                    <p className="text-sm font-semibold text-foreground">{hasPartials ? "残りの精算は不要です" : "精算不要！"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {hasPartials
+                        ? "先に精算した分を除くと、全員の収支は釣り合っています"
+                        : "全員の収支はすでにバランスが取れています"}
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : (
+              <motion.div {...fadeUp} transition={{ ...SPRING, delay: 0.12 }}>
+                <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-sm font-bold">{hasPartials ? "残りの送金リスト" : "送金リスト"}</CardTitle>
+                    <CardDescription className="text-xs">最小の回数で精算できます</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 pb-4">
+                    {settlement && (
+                      <TransferList transfers={settlement.transfers} memberList={memberList} payments={remainingPayments} />
+                    )}
+                    {/* 送金リストを見て「どう払えば？」となる場面なので、未設定のときだけ入口を案内する */}
+                    {settlement && settlement.transfers.length > 0 &&
+                      !settlement.transfers.some((t) => payoutPreferenceByName.get(t.to)) && (
+                      <p
+                        className="pt-1 text-[11px] leading-relaxed text-muted-foreground"
+                        data-testid="text-settlement-payout-hint"
+                      >
+                        受け取り方（銀行振込・PayPayなど）は、メンバー名をタップすると登録できます（精算後も変更できます）
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </>
+        )}
+
+        {/* 先に精算した分（部分精算の履歴） */}
+        {hasPartials && (
+          <PartialSettlementHistory
+            partials={partials}
+            memberList={memberList}
+            paymentsById={paymentsById}
+            canUndo={!event?.isSettled}
+            undoPending={undoPartialPending}
+            onCopy={onCopyPartial}
+            onUndo={onUndoPartialClick}
+          />
         )}
       </div>
 
@@ -1180,6 +1576,27 @@ function SettlementSection({
           <ImageIcon className="h-4 w-4" /> {exportingImage ? "..." : "画像"}
         </Button>
       </div>
+
+      {/* 一部だけ先に精算（例: 旅行の数か月前に、ホテル代と飛行機代だけ）。
+          イベント全体はロックしないので、そのあとも支払いを追加できる。 */}
+      {!event?.isSettled && remainingPayments.length > 0 && (
+        <div className="space-y-1.5">
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={onPartialSettleClick}
+            data-testid="button-partial-settle"
+          >
+            <ListChecks className="h-4 w-4" />
+            一部だけ先に精算
+          </Button>
+          {!hasPartials && (
+            <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+              ホテル代・飛行機代など、選んだ支払いだけを先に精算できます
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Settle */}
       {!event?.isSettled ? (
@@ -1239,6 +1656,8 @@ export default function EventPage() {
   const [activeTab, setActiveTab] = useState("payments");
   const [settleConfirmOpen, setSettleConfirmOpen] = useState(false);
   const [unsettleConfirmOpen, setUnsettleConfirmOpen] = useState(false);
+  const [partialDialogOpen, setPartialDialogOpen] = useState(false);
+  const [partialToUndo, setPartialToUndo] = useState<PartialSettlementSummary | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<Member | null>(null);
   const [keywordCopied, setKeywordCopied] = useState(false);
   const [exportingImage, setExportingImage] = useState(false);
@@ -1257,16 +1676,22 @@ export default function EventPage() {
     enabled: !isNaN(eventId) && eventId > 0,
   });
 
+  // 支払いと精算結果は、画面に戻ったとき（LINE などから切り替えたとき）に取り直す。
+  // 誰かが部分精算したあとも古い送金リストを出し続けると、先に精算した分をもう一度
+  // 送る（二重払い）きっかけになるため。既定の staleTime: Infinity のもとでは
+  // true では取り直されないので "always" にする。
   const paymentsQuery = useQuery<Payment[]>({
     queryKey: ["/api/events", eventId, "payments"],
     queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}/payments`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
+    refetchOnWindowFocus: "always",
   });
 
-  const settlementQuery = useQuery<{ transfers: Array<{ from: string; to: string; amount: number }>; balances: Record<number, number> }>({
+  const settlementQuery = useQuery<SettlementData>({
     queryKey: ["/api/events", eventId, "settlement"],
     queryFn: async () => (await apiRequest("GET", `/api/events/${eventId}/settlement`)).json(),
     enabled: !isNaN(eventId) && eventId > 0,
+    refetchOnWindowFocus: "always",
   });
 
   // 楽観更新：一覧から即座に消し、失敗した場合のみ巻き戻す
@@ -1319,6 +1744,42 @@ export default function EventPage() {
     onError: (err: Error) => {
       toast({ title: "エラー", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
     },
+  });
+
+  // 部分精算は金額に直結する操作なので楽観更新はせず、サーバの結果を待ってから閉じる。
+  // 支払い側（partialSettlementId）と精算結果の両方が変わるので、両方を取り直す。
+  const refreshAfterPartialChange = () => {
+    queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "payments"] });
+    queryClientHook.invalidateQueries({ queryKey: ["/api/events", eventId, "settlement"] });
+  };
+
+  const partialSettleMutation = useMutation({
+    mutationFn: async (paymentIds: number[]): Promise<PartialSettlementSummary> =>
+      (await apiRequest("POST", `/api/events/${eventId}/partial-settlements`, { paymentIds })).json(),
+    onSuccess: (partial) => {
+      setPartialDialogOpen(false);
+      toast({
+        title: `${partial.paymentIds.length}件の支払いを先に精算しました`,
+        description: "送金リストは「先に精算した分」に残ります",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "精算できませんでした", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    },
+    onSettled: refreshAfterPartialChange,
+  });
+
+  const undoPartialMutation = useMutation({
+    mutationFn: async (partialId: number) => {
+      await apiRequest("DELETE", `/api/events/${eventId}/partial-settlements/${partialId}`);
+    },
+    onSuccess: () => {
+      toast({ title: "先に精算した分を取り消しました", description: "含めていた支払いは未精算に戻りました" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "取り消せませんでした", description: err.message.replace(/^\d+: /, ""), variant: "destructive" });
+    },
+    onSettled: refreshAfterPartialChange,
   });
 
   // 楽観更新：選んだ瞬間にチップと送金リストへ反映し、失敗した場合のみ巻き戻す。
@@ -1382,6 +1843,15 @@ export default function EventPage() {
   const getMemberName = (memberId: number) => memberList.find((m) => m.id === memberId)?.name ?? "不明";
 
   const totalSpent = useMemo(() => paymentList.reduce((acc, p) => acc + Math.round(p.amount), 0), [paymentList]);
+  // 先に精算した支払い（部分精算に含まれる支払い）と、まだの支払い。
+  const settledEarlyCount = useMemo(
+    () => paymentList.filter((p) => p.partialSettlementId != null).length,
+    [paymentList],
+  );
+  const unsettledPayments = useMemo(
+    () => paymentList.filter((p) => p.partialSettlementId == null),
+    [paymentList],
+  );
   const perPersonAvg = memberList.length > 0 ? Math.round(totalSpent / memberList.length) : 0;
   const maxAbsBalance = useMemo(
     () => Math.max(1, ...memberList.map((m) => Math.abs(Math.round(settlement?.balances[m.id] ?? 0)))),
@@ -1401,18 +1871,32 @@ export default function EventPage() {
     if (ok) setTimeout(() => setKeywordCopied(false), 2000);
   };
 
+  const exportMembers = memberList.map((m) => ({
+    id: m.id,
+    name: m.name,
+    payoutLabel: m.payoutPreference
+      ? PAYOUT_PREFERENCE_LABELS[m.payoutPreference as PayoutPreference]
+      : null,
+  }));
+
+  // 先に精算した区切りを、書き出し用の形（日付ラベルと、含まれる支払いの内容・金額）にする。
+  const toPartialExport = (partial: PartialSettlementSummary): PartialSettlementExport => ({
+    label: formatSettledOn(partial.createdAt),
+    payments: partial.paymentIds
+      .map((paymentId) => paymentList.find((payment) => payment.id === paymentId))
+      .filter((payment): payment is Payment => payment !== undefined)
+      .map((payment) => ({ description: payment.description, amount: Math.round(payment.amount) })),
+    total: partial.total,
+    transfers: partial.transfers,
+  });
+
   const exportData = event && settlement
     ? {
         eventName: event.name,
-        members: memberList.map((m) => ({
-          id: m.id,
-          name: m.name,
-          payoutLabel: m.payoutPreference
-            ? PAYOUT_PREFERENCE_LABELS[m.payoutPreference as PayoutPreference]
-            : null,
-        })),
+        members: exportMembers,
         balances: settlement.balances,
         transfers: settlement.transfers,
+        partials: (settlement.partialSettlements ?? []).map(toPartialExport),
       }
     : null;
 
@@ -1420,6 +1904,13 @@ export default function EventPage() {
     if (!exportData) return;
     const ok = await copyToClipboard(buildSettlementText(exportData));
     toast({ title: ok ? "精算結果をコピーしました" : "コピーに失敗しました", variant: ok ? undefined : "destructive" });
+  };
+
+  // 先に精算した分だけを、グループに「この分を送ってください」と貼る用にコピーする。
+  const handleCopyPartial = async (partial: PartialSettlementSummary) => {
+    if (!event) return;
+    const ok = await copyToClipboard(buildPartialSettlementText(event.name, exportMembers, toPartialExport(partial)));
+    toast({ title: ok ? "先に精算する分をコピーしました" : "コピーに失敗しました", variant: ok ? undefined : "destructive" });
   };
 
   const handleDownloadCsv = () => {
@@ -1433,7 +1924,13 @@ export default function EventPage() {
     setExportingImage(true);
     try {
       const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-      const dataUrl = await toPng(settlementRef.current, { backgroundColor: bg, pixelRatio: 2 });
+      const dataUrl = await toPng(settlementRef.current, {
+        backgroundColor: bg,
+        pixelRatio: 2,
+        // 部分精算の「コピー／取り消す」など、操作ボタンは画像に写さない。
+        // filter にはテキストノードも渡ってくるので、要素かどうかを先に確かめる。
+        filter: (node) => !(node instanceof HTMLElement && node.dataset.exportExclude === "true"),
+      });
       triggerDownload(`${safeFileName(event.name)}_精算.png`, dataUrl);
       toast({ title: "画像をダウンロードしました" });
     } catch {
@@ -1634,7 +2131,10 @@ export default function EventPage() {
             {/* Summary row */}
             {paymentList.length > 0 && (
               <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-                <span>支払い {paymentList.length} 件</span>
+                <span>
+                  支払い {paymentList.length} 件
+                  {settledEarlyCount > 0 && `（うち先に精算 ${settledEarlyCount} 件）`}
+                </span>
                 <span>合計 <CountUp value={totalSpent} render={formatYen} className="money font-bold text-foreground tabular-nums" /></span>
               </div>
             )}
@@ -1670,6 +2170,8 @@ export default function EventPage() {
                   const isAllMembers = splitIds.length === memberList.length;
                   const mode = (p.splitMode ?? "equal") as SplitMode;
                   const payerName = getMemberName(p.payerId);
+                  // 先に精算した支払いは、区切りを取り消すまで編集・削除できない（サーバも 400 を返す）。
+                  const settledEarly = p.partialSettlementId != null;
                   return (
                     <motion.div
                       key={p.id}
@@ -1689,6 +2191,16 @@ export default function EventPage() {
                               {mode !== "equal" && (
                                 <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{SPLIT_MODE_LABEL[mode]}</Badge>
                               )}
+                              {settledEarly && (
+                                <Badge
+                                  variant="outline"
+                                  className="gap-0.5 border-positive/30 px-1.5 py-0 text-[10px] text-positive"
+                                  data-testid={`badge-settled-early-${p.id}`}
+                                >
+                                  <CheckCircle2 className="h-2.5 w-2.5" />
+                                  先に精算済み
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-xs text-muted-foreground">
                               {payerName} が支払い ·{" "}
@@ -1699,7 +2211,7 @@ export default function EventPage() {
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-1">
                             <span className="money text-base font-bold tabular-nums text-foreground">{formatYen(p.amount)}</span>
-                            {!event?.isSettled && (
+                            {!event?.isSettled && !settledEarly && (
                               <div className="flex gap-0.5">
                                 <Button
                                   variant="ghost"
@@ -1809,6 +2321,10 @@ export default function EventPage() {
                 onSettleClick={() => setSettleConfirmOpen(true)}
                 unsettlePending={unsettleMutation.isPending}
                 onUnsettleClick={() => setUnsettleConfirmOpen(true)}
+                onPartialSettleClick={() => setPartialDialogOpen(true)}
+                onCopyPartial={handleCopyPartial}
+                undoPartialPending={undoPartialMutation.isPending}
+                onUndoPartialClick={setPartialToUndo}
               />
             </TabsContent>
           )}
@@ -1839,6 +2355,10 @@ export default function EventPage() {
               onSettleClick={() => setSettleConfirmOpen(true)}
               unsettlePending={unsettleMutation.isPending}
               onUnsettleClick={() => setUnsettleConfirmOpen(true)}
+              onPartialSettleClick={() => setPartialDialogOpen(true)}
+              onCopyPartial={handleCopyPartial}
+              undoPartialPending={undoPartialMutation.isPending}
+              onUndoPartialClick={setPartialToUndo}
             />
           </aside>
         )}
@@ -1876,6 +2396,47 @@ export default function EventPage() {
       <AddMemberDialog open={addMemberOpen} onOpenChange={setAddMemberOpen} eventId={eventId} />
       {event && <ShareDialog open={shareOpen} onOpenChange={setShareOpen} event={event} />}
       {event && <EventSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} event={event} />}
+      {event && (
+        <PartialSettlementDialog
+          open={partialDialogOpen}
+          onOpenChange={setPartialDialogOpen}
+          event={event}
+          members={memberList}
+          payments={unsettledPayments}
+          pending={partialSettleMutation.isPending}
+          onSubmit={(paymentIds) => partialSettleMutation.mutate(paymentIds)}
+        />
+      )}
+
+      <AlertDialog
+        open={partialToUndo !== null}
+        onOpenChange={(open) => { if (!open) setPartialToUndo(null); }}
+      >
+        {partialToUndo && (
+          <AlertDialogContent data-testid="dialog-undo-partial">
+            <AlertDialogHeader>
+              <AlertDialogTitle>先に精算した分を取り消しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                {formatSettledOn(partialToUndo.createdAt)}に精算した{partialToUndo.paymentIds.length}件（{formatYen(partialToUndo.total)}）が
+                未精算に戻り、残りの送金リストに合算されます。この分をすでに送金した人がいると、その額も残りの送金リストに入るため、
+                二重払いになります。まだ誰も送金していないときだけ取り消してください。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-undo-partial">キャンセル</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  undoPartialMutation.mutate(partialToUndo.id);
+                  setPartialToUndo(null);
+                }}
+                data-testid="button-confirm-undo-partial"
+              >
+                取り消す
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
 
       <AlertDialog open={settleConfirmOpen} onOpenChange={setSettleConfirmOpen}>
         <AlertDialogContent data-testid="dialog-settle-confirm">
@@ -1883,6 +2444,7 @@ export default function EventPage() {
             <AlertDialogTitle>このイベントを精算済みにしますか？</AlertDialogTitle>
             <AlertDialogDescription>
               精算済みにすると、支払いの追加・編集・削除やメンバーの追加ができなくなります。送金が完了してから実行してください。
+              {isTrip && "旅行前に一部の支払いだけ精算したいときは、「一部だけ先に精算」を使ってください。"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

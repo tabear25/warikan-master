@@ -56,9 +56,26 @@ export const payments = sqliteTable(
     splitMode: text("split_mode").notNull().default("equal"),
     splitDetails: text("split_details"), // nullable JSON object keyed by member id; null => equal
     scheduleItemId: integer("schedule_item_id"), // 由来のスケジュール項目（任意・双方向リンク）
+    // 先に精算した区切り（partial_settlements.id）。null は未精算。
+    // 値が入っている支払いは、区切りを取り消すまで編集・削除できない。
+    partialSettlementId: integer("partial_settlement_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [index("payments_event_id_idx").on(table.eventId)],
+);
+
+// 部分精算（例: 旅行前にホテル代と飛行機代だけ先に精算する）の区切り。
+// どの支払いを含むかは payments.partialSettlementId が持つ。送金リストは保存せず、
+// 含まれる支払いから毎回計算する — 含まれる支払いは編集・削除できないので、
+// 計算結果は区切りを作ったときから変わらない。
+export const partialSettlements = sqliteTable(
+  "partial_settlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("partial_settlements_event_id_idx").on(table.eventId)],
 );
 
 // Trip schedule items (accommodation / transport / other reservations).
@@ -139,6 +156,7 @@ export type OtherKind = (typeof OTHER_KINDS)[number];
 export const insertEventSchema = createInsertSchema(events).omit({ id: true });
 export const insertMemberSchema = createInsertSchema(members).omit({ id: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
+export const insertPartialSettlementSchema = createInsertSchema(partialSettlements).omit({ id: true });
 export const insertScheduleItemSchema = createInsertSchema(scheduleItems).omit({ id: true });
 
 export type Event = typeof events.$inferSelect;
@@ -147,6 +165,8 @@ export type Member = typeof members.$inferSelect;
 export type InsertMember = z.infer<typeof insertMemberSchema>;
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+export type PartialSettlement = typeof partialSettlements.$inferSelect;
+export type InsertPartialSettlement = z.infer<typeof insertPartialSettlementSchema>;
 export type ScheduleItem = typeof scheduleItems.$inferSelect;
 export type InsertScheduleItem = z.infer<typeof insertScheduleItemSchema>;
 
@@ -252,6 +272,23 @@ export const paymentInputSchema = z
   });
 
 export type PaymentInput = z.infer<typeof paymentInputSchema>;
+
+// 部分精算の作成（POST /api/events/:id/partial-settlements）。
+// 上限は濫用対策の緩い値で、1イベントの支払い件数としては実用上届かない。
+export const partialSettlementInputSchema = z.object({
+  paymentIds: z
+    .array(
+      z
+        .number({ invalid_type_error: "支払いの指定が不正です" })
+        .int("支払いの指定が不正です")
+        .positive("支払いの指定が不正です"),
+      { required_error: "精算する支払いを選んでください", invalid_type_error: "精算する支払いを選んでください" },
+    )
+    .min(1, "精算する支払いを1件以上選んでください")
+    .max(1000, "一度に精算できる支払いは1000件までです"),
+});
+
+export type PartialSettlementInput = z.infer<typeof partialSettlementInputSchema>;
 
 // ---------------------------------------------------------------------------
 // Shared field helpers（日付・URL・任意テキスト）

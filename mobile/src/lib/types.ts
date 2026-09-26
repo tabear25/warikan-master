@@ -41,7 +41,12 @@ export interface AdminEvent extends Event {
   members: Member[];
 }
 
-/** Shape of `GET /api/events/:id/settlement`. */
+/**
+ * Shape of `GET /api/events/:id/settlement` (the fields this app reads).
+ * `transfers` / `balances` cover the payments that are not yet settled; payments
+ * settled early on the web (partial settlement) come in `partialSettlements`,
+ * which this app does not read yet.
+ */
 export interface SettlementResult {
   transfers: Array<{ from: string; to: string; amount: number }>;
   balances: Record<number, number>;

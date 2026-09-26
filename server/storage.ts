@@ -5,16 +5,19 @@ import {
   type InsertMember,
   type Payment,
   type InsertPayment,
+  type PartialSettlement,
+  type InsertPartialSettlement,
   type ScheduleItem,
   type InsertScheduleItem,
   events,
   members,
   payments,
+  partialSettlements,
   scheduleItems,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 // Treat empty/whitespace-only env vars as unset (a blank value in the Render
 // dashboard or `sync: false` should not count as "configured").
@@ -59,6 +62,25 @@ export const db = drizzle(client);
 // テストから :memory: DB を注入できるようにするための型エイリアス。
 export type Database = typeof db;
 
+// 部分精算に含めようとした支払いの一部が、すでに別の区切りに含まれていた
+// （同時に2人が操作した場合など）。ルートは 409 を返す。
+export class PartialSettlementConflictError extends Error {
+  constructor() {
+    super("すでに先に精算した支払いが含まれています");
+    this.name = "PartialSettlementConflictError";
+  }
+}
+
+// 先に精算した支払いを書き換えようとした。ルートの事前チェックと書き込みの間に
+// 部分精算がコミットされた場合も、書き込み側の条件で止めてこのエラーにする。
+// ルートは 400 を返す。
+export class PaymentSettledEarlyError extends Error {
+  constructor() {
+    super("先に精算した支払いは変更できません");
+    this.name = "PaymentSettledEarlyError";
+  }
+}
+
 export interface IStorage {
   // Events
   createEvent(event: InsertEvent): Promise<Event>;
@@ -91,6 +113,15 @@ export interface IStorage {
   updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<void>;
   createPaymentLinkedToScheduleItem(payment: InsertPayment, scheduleItemId: number): Promise<Payment>;
+
+  // Partial settlements（先に一部の支払いだけ精算した区切り）
+  getPartialSettlementsByEvent(eventId: number): Promise<PartialSettlement[]>;
+  getPartialSettlement(id: number): Promise<PartialSettlement | undefined>;
+  createPartialSettlement(
+    partial: InsertPartialSettlement,
+    paymentIds: number[],
+  ): Promise<{ partial: PartialSettlement; payments: Payment[] }>;
+  deletePartialSettlement(id: number, eventId: number): Promise<void>;
 
   // Schedule items
   getScheduleItemsByEvent(eventId: number): Promise<ScheduleItem[]>;
@@ -125,11 +156,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEvent(id: number): Promise<void> {
-    // Cascade delete schedule items, payments and members before the event,
-    // atomically so a crash mid-delete cannot leave orphaned rows.
+    // Cascade delete schedule items, payments, partial settlements and members
+    // before the event, atomically so a crash mid-delete cannot leave orphaned rows.
     await this.db.transaction(async (tx) => {
       await tx.delete(scheduleItems).where(eq(scheduleItems.eventId, id)).run();
       await tx.delete(payments).where(eq(payments.eventId, id)).run();
+      await tx.delete(partialSettlements).where(eq(partialSettlements.eventId, id)).run();
       await tx.delete(members).where(eq(members.eventId, id)).run();
       await tx.delete(events).where(eq(events.id, id)).run();
     });
@@ -189,7 +221,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPaymentsByEvent(eventId: number): Promise<Payment[]> {
-    return this.db.select().from(payments).where(eq(payments.eventId, eventId)).all();
+    // ID 順を保証する（部分精算の paymentIds の並びを、作成時の応答と揃えるため）。
+    return this.db
+      .select()
+      .from(payments)
+      .where(eq(payments.eventId, eventId))
+      .orderBy(asc(payments.id))
+      .all();
   }
 
   async getPayment(id: number): Promise<Payment | undefined> {
@@ -197,19 +235,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePayment(id: number, fields: Partial<InsertPayment>): Promise<Payment | undefined> {
-    await this.db.update(payments).set(fields).where(eq(payments.id, id)).run();
-    return this.db.select().from(payments).where(eq(payments.id, id)).get();
+    // 先に精算した支払いは書き換えない（その区切りの送金額が黙って変わるため）。
+    // 条件を書き込み自体に入れて、ルートの事前チェックとの間の競合も止める。
+    const result = await this.db
+      .update(payments)
+      .set(fields)
+      .where(and(eq(payments.id, id), isNull(payments.partialSettlementId)))
+      .run();
+    const current = await this.db.select().from(payments).where(eq(payments.id, id)).get();
+    if (result.rowsAffected === 0 && current?.partialSettlementId != null) {
+      throw new PaymentSettledEarlyError();
+    }
+    return current;
   }
 
   async deletePayment(id: number): Promise<void> {
-    // スケジュール項目からの変換リンクを外してから削除する（項目は残り、再変換できる）。
+    // 支払いを消し、スケジュール項目からの変換リンクを外す（項目は残り、再変換できる）。
+    // 先に精算した支払いは消さない（updatePayment と同じく書き込みの条件で止める）。
     await this.db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(payments)
+        .where(and(eq(payments.id, id), isNull(payments.partialSettlementId)))
+        .run();
+      if (deleted.rowsAffected === 0) {
+        const current = await tx.select().from(payments).where(eq(payments.id, id)).get();
+        if (current?.partialSettlementId != null) {
+          throw new PaymentSettledEarlyError();
+        }
+        return;
+      }
       await tx
         .update(scheduleItems)
         .set({ paymentId: null })
         .where(eq(scheduleItems.paymentId, id))
         .run();
-      await tx.delete(payments).where(eq(payments.id, id)).run();
     });
   }
 
@@ -226,6 +285,69 @@ export class DatabaseStorage implements IStorage {
         .where(eq(scheduleItems.id, scheduleItemId))
         .run();
       return created;
+    });
+  }
+
+  // Partial settlements
+  async getPartialSettlementsByEvent(eventId: number): Promise<PartialSettlement[]> {
+    return this.db
+      .select()
+      .from(partialSettlements)
+      .where(eq(partialSettlements.eventId, eventId))
+      .orderBy(asc(partialSettlements.id))
+      .all();
+  }
+
+  async getPartialSettlement(id: number): Promise<PartialSettlement | undefined> {
+    return this.db.select().from(partialSettlements).where(eq(partialSettlements.id, id)).get();
+  }
+
+  async createPartialSettlement(
+    partial: InsertPartialSettlement,
+    paymentIds: number[],
+  ): Promise<{ partial: PartialSettlement; payments: Payment[] }> {
+    // 区切りの作成と支払いへの紐付けを原子的に行う。紐付けるのは「このイベントの、
+    // まだどの区切りにも含まれていない支払い」だけで、件数が合わなければ全体を巻き戻す。
+    // ルート側の事前チェックとの間に別の部分精算が同じ支払いを取った場合も、ここで止まる。
+    // paymentIds は重複を除いてから渡すこと（件数の比較に使うため）。
+    return this.db.transaction(async (tx) => {
+      const created = await tx.insert(partialSettlements).values(partial).returning().get();
+      const result = await tx
+        .update(payments)
+        .set({ partialSettlementId: created.id })
+        .where(
+          and(
+            eq(payments.eventId, partial.eventId),
+            inArray(payments.id, paymentIds),
+            isNull(payments.partialSettlementId),
+          ),
+        )
+        .run();
+      if (result.rowsAffected !== paymentIds.length) {
+        throw new PartialSettlementConflictError();
+      }
+      // 実際に区切りに入った内容を返す（事前チェックのあとに編集された場合も、
+      // 保存された金額で応答を組み立てられるように）。
+      const included = await tx
+        .select()
+        .from(payments)
+        .where(and(eq(payments.eventId, partial.eventId), eq(payments.partialSettlementId, created.id)))
+        .orderBy(asc(payments.id))
+        .all();
+      return { partial: created, payments: included };
+    });
+  }
+
+  async deletePartialSettlement(id: number, eventId: number): Promise<void> {
+    // 含まれていた支払いを未精算に戻してから区切りを消す（支払い自体は消さない）。
+    // eventId を条件に入れるのは payments_event_id_idx を効かせるため。
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(payments)
+        .set({ partialSettlementId: null })
+        .where(and(eq(payments.eventId, eventId), eq(payments.partialSettlementId, id)))
+        .run();
+      await tx.delete(partialSettlements).where(eq(partialSettlements.id, id)).run();
     });
   }
 
